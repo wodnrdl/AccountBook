@@ -1,36 +1,39 @@
 <template>
   <div v-cloak>
     <!-- Top Navbar -->
-    <nav class="top-navbar d-flex align-items-center flex-wrap gap-3">
-      <!-- Year -->
-      <div class="dropdown">
-        <a class="dropdown-toggle" href="#" data-bs-toggle="dropdown">
-          <i class="fas fa-calendar-alt"></i> {{ year }}년
-        </a>
-        <ul class="dropdown-menu">
-          <li v-for="y in years" :key="y">
-            <a class="dropdown-item" href="#" @click.prevent="year = y">{{ y }}년</a>
-          </li>
-        </ul>
+    <nav class="top-navbar">
+      <div class="d-flex align-items-center gap-3">
+        <!-- Year & Month (right aligned) -->
+        <div class="d-flex gap-3 ms-auto">
+          <div class="dropdown">
+            <a class="dropdown-toggle" href="#" data-bs-toggle="dropdown">
+              <i class="fas fa-calendar-alt"></i> {{ year }}년
+            </a>
+            <ul class="dropdown-menu">
+              <li v-for="y in years" :key="y">
+                <a class="dropdown-item" href="#" @click.prevent="year = y">{{ y }}년</a>
+              </li>
+            </ul>
+          </div>
+          <div class="dropdown">
+            <a class="dropdown-toggle" href="#" data-bs-toggle="dropdown">
+              <i class="fas fa-calendar-alt"></i> {{ month }}월
+            </a>
+            <ul class="dropdown-menu">
+              <li v-for="m in 12" :key="m">
+                <a class="dropdown-item" href="#" @click.prevent="month = m">{{ m }}월</a>
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
-
-      <!-- Month -->
-      <div class="dropdown">
-        <a class="dropdown-toggle" href="#" data-bs-toggle="dropdown">
-          <i class="fas fa-calendar-alt"></i> {{ month }}월
-        </a>
-        <ul class="dropdown-menu">
-          <li v-for="m in 12" :key="m">
-            <a class="dropdown-item" href="#" @click.prevent="month = m">{{ m }}월</a>
-          </li>
-        </ul>
-      </div>
-
       <!-- Refresh -->
-      <span class="refresh-btn ms-auto" @click="dataReload">
-        최신 업데이트 {{ lastUpdate }}
-        <i class="fas fa-sync-alt ms-1"></i>
-      </span>
+      <div class="mt-2">
+        <span class="refresh-btn" @click="dataReload">
+          최신 업데이트 {{ lastUpdate }}
+          <i class="fas fa-sync-alt ms-1"></i>
+        </span>
+      </div>
     </nav>
 
     <!-- Header -->
@@ -38,84 +41,125 @@
       <div class="container-fluid">
         <div class="row g-3">
           <!-- 수입 -->
-          <div class="col-xl-2 col-lg-4 col-md-6">
+          <div class="col-6">
             <div class="card stats-card">
               <div class="card-body">
                 <div class="card-title">수입</div>
-                <div class="stat-value">{{ comma(salaryAmount) }}</div>
-                <div class="stat-compare">
-                  전월 대비<br />
-                  <span :class="salaryAmount - beforeSalaryAmount >= 0 ? 'text-success' : 'text-danger'">
-                    <i class="fas" :class="salaryAmount - beforeSalaryAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                    {{ comma(salaryAmount - beforeSalaryAmount) }}
-                  </span>
-                </div>
+                <template v-if="loading">
+                  <div class="skeleton-line tall"></div>
+                  <div class="skeleton-line short mt-2"></div>
+                </template>
+                <template v-else>
+                  <div class="stat-value">{{ comma(salaryAmount) }}</div>
+                  <div class="stat-compare">
+                    전월 대비<br />
+                    <span :class="salaryAmount - beforeSalaryAmount >= 0 ? 'text-success' : 'text-danger'">
+                      <i class="fas" :class="salaryAmount - beforeSalaryAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
+                      {{ comma(salaryAmount - beforeSalaryAmount) }}
+                    </span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
           <!-- 지출 -->
-          <div class="col-xl-2 col-lg-4 col-md-6">
+          <div class="col-6">
             <div class="card stats-card">
               <div class="card-body">
                 <div class="card-title">지출</div>
-                <div class="stat-value">{{ comma(outAmount) }}</div>
-                <div class="stat-compare">
-                  전월 대비<br />
-                  <span :class="beforeOutAmount - outAmount >= 0 ? 'text-success' : 'text-danger'">
-                    <i class="fas" :class="beforeOutAmount - outAmount >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'"></i>
-                    {{ comma(beforeOutAmount - outAmount) }}
-                  </span>
-                </div>
+                <template v-if="loading">
+                  <div class="skeleton-line tall"></div>
+                  <div class="skeleton-line short mt-2"></div>
+                </template>
+                <template v-else>
+                  <div class="stat-value">{{ comma(outAmount) }}</div>
+                  <div class="stat-compare">
+                    전월 대비<br />
+                    <span :class="beforeOutAmount - outAmount >= 0 ? 'text-success' : 'text-danger'">
+                      <i class="fas" :class="beforeOutAmount - outAmount >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'"></i>
+                      {{ comma(beforeOutAmount - outAmount) }}
+                    </span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
           <!-- 남은 생활비 -->
-          <div class="col-xl-2 col-lg-4 col-md-6">
+          <div class="col-6">
             <div class="card stats-card">
               <div class="card-body">
                 <div class="card-title">남은 생활비</div>
-                <div class="stat-value">{{ comma(1000000 - lifeAmount) }}</div>
-                <div class="stat-compare">
-                  전월 대비<br />
-                  <span :class="lifeAmount - beforeLifeAmount >= 0 ? 'text-danger' : 'text-success'">
-                    <i class="fas" :class="lifeAmount - beforeLifeAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                    {{ comma(lifeAmount - beforeLifeAmount) }}
-                  </span>
-                </div>
+                <template v-if="loading">
+                  <div class="skeleton-line tall"></div>
+                  <div class="skeleton-line short mt-2"></div>
+                </template>
+                <template v-else>
+                  <div class="stat-value">{{ comma(1000000 - lifeAmount) }}</div>
+                  <div class="stat-compare">
+                    전월 대비<br />
+                    <span :class="lifeAmount - beforeLifeAmount >= 0 ? 'text-danger' : 'text-success'">
+                      <i class="fas" :class="lifeAmount - beforeLifeAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
+                      {{ comma(lifeAmount - beforeLifeAmount) }}
+                    </span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+          <!-- 현재 남은돈 -->
+          <div class="col-6">
+            <div class="card stats-card">
+              <div class="card-body">
+                <div class="card-title">현재 남은돈</div>
+                <template v-if="loading">
+                  <div class="skeleton-line tall"></div>
+                  <div class="skeleton-line short mt-2"></div>
+                </template>
+                <template v-else>
+                  <div class="stat-value">{{ comma(salaryAllAmount) }}</div>
+                  <div class="stat-compare">
+                    전월 대비<br />
+                    <span :class="salaryAllAmount - beforeSalaryAllAmount >= 0 ? 'text-success' : 'text-danger'">
+                      <i class="fas" :class="salaryAllAmount - beforeSalaryAllAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
+                      {{ comma(salaryAllAmount - beforeSalaryAllAmount) }}
+                    </span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
           <!-- 저축 -->
-          <div class="col-xl-2 col-lg-4 col-md-6">
+          <div class="col-12">
             <div class="card stats-card">
               <div class="card-body">
                 <div class="card-title">저축</div>
-                <div class="stat-value">{{ comma(saveAmount) }}</div>
-                <div class="stat-compare">
-                  전월 대비<br />
-                  <span :class="saveAmount - beforeSaveAmount >= 0 ? 'text-success' : 'text-danger'">
-                    <i class="fas" :class="saveAmount - beforeSaveAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                    {{ comma(saveAmount - beforeSaveAmount) }}
-                  </span>
-                </div>
+                <template v-if="loading">
+                  <div class="skeleton-line tall"></div>
+                  <div class="skeleton-line short mt-2"></div>
+                </template>
+                <template v-else>
+                  <div class="stat-value">{{ comma(saveAmount) }}</div>
+                  <div class="stat-compare">
+                    전월 대비<br />
+                    <span :class="saveAmount - beforeSaveAmount >= 0 ? 'text-success' : 'text-danger'">
+                      <i class="fas" :class="saveAmount - beforeSaveAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
+                      {{ comma(saveAmount - beforeSaveAmount) }}
+                    </span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
-          <!-- 남은돈 -->
-          <div class="col-xl-2 col-lg-4 col-md-6">
-            <div class="card stats-card">
-              <div class="card-body">
-                <div class="card-title">현재 남은돈</div>
-                <div class="stat-value">{{ comma(salaryAllAmount) }}</div>
-                <div class="stat-compare">
-                  전월 대비<br />
-                  <span :class="salaryAllAmount - beforeSalaryAllAmount >= 0 ? 'text-success' : 'text-danger'">
-                    <i class="fas" :class="salaryAllAmount - beforeSalaryAllAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                    {{ comma(salaryAllAmount - beforeSalaryAllAmount) }}
-                  </span>
-                </div>
-              </div>
-            </div>
+          <!-- 등록/삭제 버튼 -->
+          <div class="col-6">
+            <button class="btn btn-danger w-100" :disabled="!hasCheckedRows" data-bs-toggle="modal" data-bs-target="#deleteModal">
+              <i class="fas fa-minus me-1"></i>삭제
+            </button>
+          </div>
+          <div class="col-6">
+            <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#registerModal" @click="openRegisterModal">
+              <i class="fas fa-plus me-1"></i>등록
+            </button>
           </div>
         </div>
       </div>
@@ -126,13 +170,8 @@
       <div class="row g-3">
         <div class="col-xl-4 col-lg-6" v-for="(cat, index) in categories" :key="cat.id">
           <div class="card grid-card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header">
               <h5 class="mb-0">{{ cat.title }}</h5>
-              <div>
-                <button class="btn btn-sm btn-danger me-1" data-bs-toggle="modal" data-bs-target="#deleteModal"
-                        @click="gridRemoveId = index">삭제-</button>
-                <button class="btn btn-sm btn-primary" @click="rowRegister(index)">등록+</button>
-              </div>
             </div>
             <div :id="'grid_' + cat.id" style="min-height: 300px"></div>
           </div>
@@ -140,8 +179,89 @@
       </div>
     </div>
 
+    <!-- Register Modal -->
+    <div class="modal fade" id="registerModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">등록</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" :disabled="formSubmitting"></button>
+          </div>
+          <div class="modal-body">
+            <!-- 입력 폼 -->
+            <div class="row g-2 align-items-end">
+              <div class="col">
+                <label class="form-label form-label-sm mb-1">분류 <span class="text-danger">*</span></label>
+                <select class="form-select form-select-sm" v-model="formInput.categoryIndex">
+                  <option v-for="(cat, i) in categories" :key="cat.id" :value="i">{{ cat.title }}</option>
+                </select>
+              </div>
+              <div class="col">
+                <label class="form-label form-label-sm mb-1">항목 <span class="text-danger">*</span></label>
+                <input type="text" class="form-control form-control-sm" v-model="formInput.detailType" placeholder="항목명" />
+              </div>
+            </div>
+            <div class="row g-2 align-items-end mt-1">
+              <div class="col">
+                <label class="form-label form-label-sm mb-1">금액 <span class="text-danger">*</span></label>
+                <input type="number" inputmode="numeric" class="form-control form-control-sm" v-model.number="formInput.amount" placeholder="금액" min="1" />
+              </div>
+              <div class="col" v-if="categories[formInput.categoryIndex]?.hasPayType">
+                <label class="form-label form-label-sm mb-1">결제수단</label>
+                <select class="form-select form-select-sm" v-model="formInput.payType">
+                  <option value="카드">카드</option>
+                  <option value="현금">현금</option>
+                </select>
+              </div>
+              <div class="col">
+                <label class="form-label form-label-sm mb-1">결제일</label>
+                <input type="date" class="form-control form-control-sm" v-model="formInput.update_at" />
+              </div>
+            </div>
+            <div class="row g-2 align-items-end mt-1">
+              <div class="col-auto ms-auto">
+                <button class="btn btn-sm btn-outline-primary" @click="formAddItem">추가</button>
+              </div>
+            </div>
+
+            <!-- 추가된 목록 -->
+            <div v-if="formItems.length > 0" class="mt-3">
+              <table class="table table-sm table-bordered mb-0">
+                <thead>
+                  <tr>
+                    <th>분류</th>
+                    <th>항목</th>
+                    <th>금액</th>
+                    <th>결제</th>
+                    <th>결제일</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, i) in formItems" :key="i">
+                    <td>{{ item.categoryTitle }}</td>
+                    <td>{{ item.detailType }}</td>
+                    <td>{{ Number(item.amount).toLocaleString() }}</td>
+                    <td>{{ item.payType || '-' }}</td>
+                    <td>{{ item.update_at }}</td>
+                    <td><button class="btn btn-sm btn-outline-danger py-0 px-1" @click="formItems.splice(i, 1)">X</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="registerCancel" class="btn btn-secondary" data-bs-dismiss="modal" :disabled="formSubmitting">취소</button>
+            <button type="button" class="btn btn-primary" @click="formSubmit" :disabled="formSubmitting || formItems.length === 0">
+              {{ formSubmitting ? '저장 중...' : '저장 (' + formItems.length + '건)' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Delete Modal -->
-    <div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal fade" id="deleteModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
@@ -152,8 +272,10 @@
             체크한 값들이 삭제됩니다.<br />복구 불가
           </div>
           <div class="modal-footer">
-            <button type="button" id="deleteCancel" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-            <button type="button" class="btn btn-danger" @click="rowRemove">삭제</button>
+            <button type="button" id="deleteCancel" class="btn btn-secondary" data-bs-dismiss="modal" :disabled="deleting">취소</button>
+            <button type="button" class="btn btn-danger" @click="rowRemove" :disabled="deleting">
+              {{ deleting ? '삭제 중...' : '삭제' }}
+            </button>
           </div>
         </div>
       </div>
@@ -164,15 +286,17 @@
 <script setup>
 import { ref, watch, onMounted, nextTick } from 'vue'
 import {
-  comma, fetchAllData, fetchCategories, fetchData,
-  registerData, deleteData,
+  comma, fetchAllData, fetchAllGridData,
+  registerData, registerBulkData, deleteData,
 } from '../lib/api.js'
 
 const now = new Date()
 const year = ref(now.getFullYear())
 const month = ref(now.getMonth() + 1)
-const years = [2024, 2025, 2026, 2027]
+const years = [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032]
 const lastUpdate = ref(formatNow())
+
+const loading = ref(true)
 
 const salaryAmount = ref(0)
 const outAmount = ref(0)
@@ -185,10 +309,27 @@ const beforeLifeAmount = ref(0)
 const salaryAllAmount = ref(0)
 const beforeSalaryAllAmount = ref(0)
 
-const categories = ref([])
-const categoryNavs = ref([])
+const categories = [
+  { id: 2, title: '수입', hasPayType: false },
+  { id: 3, title: '저축/투자', hasPayType: false },
+  { id: 5, title: '고정지출', hasPayType: true },
+  { id: 6, title: '변동지출', hasPayType: true },
+  { id: 7, title: '생활비', hasPayType: false },
+  { id: 11, title: '기타수입', hasPayType: false },
+]
 const grids = ref([])
-const gridRemoveId = ref(0)
+const hasCheckedRows = ref(false)
+
+const formSubmitting = ref(false)
+const formItems = ref([])
+const formInput = ref({
+  categoryIndex: 0,
+  detailType: '',
+  amount: '',
+  payType: '카드',
+  update_at: '',
+  memo: '',
+})
 
 function formatNow() {
   const d = new Date()
@@ -197,6 +338,7 @@ function formatNow() {
 }
 
 async function loadAllData() {
+  loading.value = true
   const d = await fetchAllData(year.value, month.value)
   salaryAmount.value = d.salary_amount
   outAmount.value = d.out_amount
@@ -208,65 +350,45 @@ async function loadAllData() {
   beforeLifeAmount.value = d.before_life_amount
   salaryAllAmount.value = d.salary_all_amount
   beforeSalaryAllAmount.value = d.before_salary_all_amount
+  loading.value = false
 }
 
-async function loadGridData(categoryId, idx) {
-  const data = await fetchData(year.value, month.value, categoryId)
-  if (grids.value[idx]) {
-    grids.value[idx].resetData(data)
-    grids.value[idx].restore()
-  }
+async function loadAllGrids() {
+  const grouped = await fetchAllGridData(year.value, month.value)
+  categories.forEach((cat, idx) => {
+    if (grids.value[idx]) {
+      grids.value[idx].resetData(grouped[cat.id] || [])
+      grids.value[idx].restore()
+    }
+  })
 }
 
-function updateSummary(response) {
-  salaryAmount.value = response.salary_amount
-  outAmount.value = response.out_amount
-  saveAmount.value = response.save_amount
-  lifeAmount.value = response.life_amount
-  beforeSalaryAmount.value = response.before_salary_amount
-  beforeOutAmount.value = response.before_out_amount
-  beforeSaveAmount.value = response.before_save_amount
-  beforeLifeAmount.value = response.before_life_amount
-  salaryAllAmount.value = response.salary_all_amount
-  beforeSalaryAllAmount.value = response.before_salary_all_amount
+function loadGridData(categoryId, idx) {
+  // 단건 리로드용 (등록 후)
+  fetchAllGridData(year.value, month.value).then(grouped => {
+    if (grids.value[idx]) {
+      grids.value[idx].resetData(grouped[categoryId] || [])
+      grids.value[idx].restore()
+    }
+  })
 }
 
-async function initGrids() {
-  const { categories: cats, categoryNavs: navs } = await fetchCategories()
-  categories.value = cats
-  categoryNavs.value = navs
 
-  await nextTick()
-
+function initGrids() {
   const Grid = tui.Grid
   Grid.setLanguage('ko')
 
-  cats.forEach((cat, idx) => {
-    const navItems = navs.filter(n => Number(n.category_id) === cat.id)
-    const columns = []
-    let summary = {}
-
-    navItems.forEach(item => {
-      const info = { name: item.name, header: item.title, width: 95 }
-
-      if (item.title === '금액') {
-        info.validation = { regExp: /^[0-9]+$/ }
-        info.formatter = ({ value }) => {
+  categories.forEach((cat, idx) => {
+    const columns = [
+      { name: 'detailType', header: '항목', width: 95, editor: 'text' },
+      {
+        name: 'amount', header: '금액', width: 95, editor: 'text',
+        validation: { regExp: /^[0-9]+$/ },
+        formatter: ({ value }) => {
           const str = String(value).replace(/^0+/, '') || '0'
           return Number(str).toLocaleString('ko-KR') + ' ₩'
-        }
-        summary = {
-          height: 30,
-          position: 'bottom',
-          columnContent: {
-            [item.name]: {
-              template: (valueMap) => {
-                return `TOTAL<br/>${Number(valueMap.sum).toLocaleString('ko-KR')} ₩`
-              },
-            },
-          },
-        }
-        info.onBeforeChange = (ev) => {
+        },
+        onBeforeChange: (ev) => {
           const { nextValue } = ev
           if (!/^\d+$/.test(nextValue)) {
             alert('숫자만 입력해주세요.')
@@ -275,28 +397,31 @@ async function initGrids() {
             alert('첫자리는 0이 될 수 없습니다.')
             ev.stop()
           }
-        }
-      } else if (item.title === '결제일') {
-        info.sortingType = 'asc'
-        info.sortable = true
-        info.editor = {
-          type: 'datePicker',
-          options: { format: 'yyyy-MM-dd' },
-        }
-      }
+        },
+      },
+    ]
 
-      if (item.option) {
-        try {
-          JSON.parse(item.option).forEach(opt => {
-            Object.keys(opt).forEach(k => { info[k] = opt[k] })
-          })
-        } catch (e) { /* ignore */ }
-      }
+    if (cat.hasPayType) {
+      columns.push({ name: 'payType', header: '결제수단', width: 95, editor: 'text' })
+    }
 
-      columns.push(info)
+    columns.push({
+      name: 'update_at', header: '결제일', width: 95,
+      sortingType: 'asc', sortable: true,
+      editor: { type: 'datePicker', options: { format: 'yyyy-MM-dd' } },
     })
-
+    columns.push({ name: 'memo', header: '메모', width: 95, editor: 'text' })
     columns.push({ name: 'row_id', hidden: true })
+
+    const summary = {
+      height: 30,
+      position: 'bottom',
+      columnContent: {
+        amount: {
+          template: (valueMap) => `TOTAL<br/>${Number(valueMap.sum).toLocaleString('ko-KR')} ₩`,
+        },
+      },
+    }
 
     const el = document.getElementById('grid_' + cat.id)
     if (!el) return
@@ -324,60 +449,46 @@ async function initGrids() {
     })
 
     grid.on('afterChange', (event) => {
-      const categoryId = cat.id
-      const changes = event.changes
-      const rowKey = changes[0].rowKey
-      const rowData = Object.entries(grid.getData().find(row => row.rowKey === rowKey))
+      if (skipGridEvents) return
+      const rowKey = event.changes[0].rowKey
+      const row = grid.getData().find(r => r.rowKey === rowKey)
 
-      let i = 0
-      const model = {}
-
-      // 저축, 투자, 수입 (payType 없는 카테고리)
-      if ([2, 3, 7, 11].includes(categoryId)) {
-        i = 1
-        for (const [, value] of rowData) {
-          if (i === 1) model.detailType = value
-          else if (i === 2) model.amount = value
-          else if (i === 3) model.update_at = value
-          else if (i === 4) model.memo = value
-          if (i > 3) break
-          if (value === '' || value === null || value === undefined || model.amount === 0) break
-          i++
-        }
-        model.row_id = rowData[4]?.[1] || 0
-      } else {
-        for (const [, value] of rowData) {
-          if (i === 0) model.detailType = value
-          else if (i === 1) model.amount = value
-          else if (i === 2) model.payType = value
-          else if (i === 3) model.update_at = value
-          else if (i === 4) model.memo = value
-          if (i > 3) break
-          if (value === '' || value === null || value === undefined || model.amount === 0) break
-          i++
-        }
-        model.row_id = rowData[5]?.[1] || 0
+      const model = {
+        detailType: row.detailType,
+        amount: row.amount,
+        update_at: row.update_at,
+        memo: row.memo,
+        row_id: row.row_id || 0,
       }
 
-      if (i === 4) {
-        model.rowKey = rowKey
-        model.category_id = categoryId
-        model.year = year.value
-        model.month = month.value
-        rowRegisterDB(model, idx)
+      if (cat.hasPayType) {
+        model.payType = row.payType
       }
+
+      // 필수값 체크
+      if (!model.detailType || !model.amount || model.amount === 0 || !model.update_at) return
+
+      model.rowKey = rowKey
+      model.category_id = cat.id
+      model.year = year.value
+      model.month = month.value
+      rowRegisterDB(model, idx)
     })
 
-    loadGridData(cat.id, idx)
+    grid.on('check', () => updateCheckedState())
+    grid.on('uncheck', () => updateCheckedState())
+    grid.on('checkAll', () => updateCheckedState())
+    grid.on('uncheckAll', () => updateCheckedState())
+
     grids.value.push(grid)
   })
+  loadAllGrids()
 }
 
 async function rowRegisterDB(model, gridIdx) {
   try {
     const response = await registerData(model)
 
-    // row_id 업데이트
     if (response.id) {
       const rawData = grids.value[gridIdx].store.data.rawData
       for (let i = 0; i < rawData.length; i++) {
@@ -388,65 +499,114 @@ async function rowRegisterDB(model, gridIdx) {
       }
     }
 
-    updateSummary(response)
+    await loadAllData()
   } catch (err) {
     console.error('Error:', err)
     alert('등록 오류: ' + err.message)
   }
 }
 
-function rowRegister(index) {
-  const cat = categories.value[index]
-  const data = {}
-  const noPayType = [2, 3, 7, 11].includes(cat.id)
+function openRegisterModal() {
+  formItems.value = []
+  formInput.value = {
+    categoryIndex: 0,
+    detailType: '',
+    amount: '',
+    payType: '카드',
+    update_at: new Date().toISOString().substring(0, 10),
+    memo: '',
+  }
+}
 
-  grids.value[index].getColumns().forEach((item, colIdx) => {
-    if (noPayType) {
-      if (colIdx === 1 || colIdx === 4) data[item.name] = 0
-      else if (colIdx === 2) data[item.name] = new Date().toISOString().substring(0, 10)
-      else data[item.name] = ''
-    } else {
-      if (colIdx === 1 || colIdx === 5) data[item.name] = 0
-      else if (colIdx === 3) data[item.name] = new Date().toISOString().substring(0, 10)
-      else data[item.name] = ''
-    }
+function formAddItem() {
+  const fi = formInput.value
+  if (!fi.detailType) return alert('항목명을 입력해주세요.')
+  if (!fi.amount || fi.amount <= 0) return alert('금액을 입력해주세요.')
+
+  const cat = categories[fi.categoryIndex]
+  formItems.value.push({
+    ...fi,
+    categoryId: cat.id,
+    categoryTitle: cat.title,
+    payType: cat.hasPayType ? fi.payType : '',
   })
+  formInput.value = {
+    categoryIndex: fi.categoryIndex,
+    detailType: '',
+    amount: '',
+    payType: fi.payType,
+    update_at: fi.update_at,
+    memo: '',
+  }
+}
 
-  grids.value[index].prependRow(data, { at: grids.value[index].getRowCount() })
-  grids.value[index].enable()
+async function formSubmit() {
+  if (formSubmitting.value || formItems.value.length === 0) return
+  formSubmitting.value = true
+
+  try {
+    await registerBulkData(formItems.value)
+    await loadAllData()
+    await loadAllGrids()
+    const registerModal = bootstrap.Modal.getInstance(document.getElementById('registerModal'))
+    if (registerModal) registerModal.hide()
+  } catch (err) {
+    alert('등록 오류: ' + err.message)
+  } finally {
+    formSubmitting.value = false
+  }
+}
+
+const deleting = ref(false)
+let skipGridEvents = false
+
+function updateCheckedState() {
+  hasCheckedRows.value = grids.value.some(g => g.getCheckedRows().length > 0)
 }
 
 async function rowRemove() {
-  const grid = grids.value[gridRemoveId.value]
-  const checked = grid.getCheckedRows()
-  if (checked.length === 0) return
+  if (deleting.value) return
+  deleting.value = true
 
-  const rowIds = checked.map(r => r.row_id).filter(id => id && id !== 0)
-  if (rowIds.length > 0) {
-    await deleteData(rowIds)
+  try {
+    const allRowIds = []
+    grids.value.forEach(grid => {
+      const checked = grid.getCheckedRows()
+      checked.forEach(r => {
+        if (r.row_id && r.row_id !== 0) allRowIds.push(r.row_id)
+      })
+    })
+    if (allRowIds.length > 0) {
+      await deleteData(allRowIds)
+    }
+    skipGridEvents = true
+    grids.value.forEach(grid => grid.removeCheckedRows())
+    skipGridEvents = false
+    const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'))
+    if (deleteModal) deleteModal.hide()
+    hasCheckedRows.value = false
+    await loadAllData()
+  } catch (err) {
+    alert('삭제 오류: ' + err.message)
+  } finally {
+    deleting.value = false
   }
-  grid.removeCheckedRows()
-  document.getElementById('deleteCancel')?.click()
-  await loadAllData()
 }
 
 function dataReload() {
   loadAllData()
+  loadAllGrids()
   lastUpdate.value = formatNow()
-  categories.value.forEach((cat, idx) => {
-    loadGridData(cat.id, idx)
-  })
 }
 
 watch([year, month], () => {
   loadAllData()
-  categories.value.forEach((cat, idx) => {
-    loadGridData(cat.id, idx)
-  })
+  loadAllGrids()
 })
 
-onMounted(() => {
+onMounted(async () => {
   loadAllData()
+  await nextTick()
   initGrids()
 })
 </script>

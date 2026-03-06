@@ -15,64 +15,51 @@ function getMonthRange(year, month) {
   return { first, last }
 }
 
-// 카테고리별 월 총액
-async function getAmount(categoryIds, year, month) {
-  const { first, last } = getMonthRange(year, month)
-  const { data } = await supabase
-    .from('row_data')
-    .select('amount')
-    .in('category_id', categoryIds)
-    .gte('update_at', first)
-    .lte('update_at', last)
-
-  if (!data || data.length === 0) return 0
-  return data.reduce((sum, r) => sum + Number(r.amount), 0)
+// 카테고리별 합산 헬퍼
+function sumByCategory(rows, categoryIds) {
+  return rows
+    .filter(r => categoryIds.includes(r.category_id))
+    .reduce((s, r) => s + Number(r.amount), 0)
 }
 
-// 전체 남은돈
-async function getAllAmount(year, month) {
-  let incomeQuery = supabase.from('row_data').select('amount').in('category_id', [2, 11])
-  let expenseQuery = supabase.from('row_data').select('amount').in('category_id', [3, 5, 6, 7])
-
-  if (year !== 0 && month !== 0) {
-    const { first, last } = getMonthRange(year, month)
-    incomeQuery = incomeQuery.gte('update_at', first).lte('update_at', last)
-    expenseQuery = expenseQuery.gte('update_at', first).lte('update_at', last)
-  }
-
-  const [incomeRes, expenseRes] = await Promise.all([incomeQuery, expenseQuery])
-  const income = (incomeRes.data || []).reduce((s, r) => s + Number(r.amount), 0)
-  const expense = (expenseRes.data || []).reduce((s, r) => s + Number(r.amount), 0)
-  return income - expense
-}
-
-// 전체 요약 데이터 가져오기
+// 전체 요약 데이터 가져오기 (3쿼리)
 export async function fetchAllData(year, month) {
   let y = Number(year)
   let pm = Number(month) - 1
   if (pm === 0) { pm = 12; y-- }
 
-  const [
-    salary_amount, out_amount, save_amount, life_amount,
-    before_salary_amount, before_out_amount, before_save_amount, before_life_amount,
-    salary_all_amount, before_salary_all_amount,
-  ] = await Promise.all([
-    getAmount([2, 11], year, month),
-    getAmount([5, 6, 7], year, month),
-    getAmount([3], year, month),
-    getAmount([7], year, month),
-    getAmount([2, 11], y, pm),
-    getAmount([5, 6, 7], y, pm),
-    getAmount([3], y, pm),
-    getAmount([7], y, pm),
-    getAllAmount(0, 0),
-    getAllAmount(y, pm),
+  const curRange = getMonthRange(year, month)
+  const prevRange = getMonthRange(y, pm)
+
+  const [curRes, prevRes, allRes] = await Promise.all([
+    supabase.from('row_data').select('category_id, amount')
+      .in('category_id', [2, 3, 5, 6, 7, 11])
+      .gte('update_at', curRange.first).lte('update_at', curRange.last),
+    supabase.from('row_data').select('category_id, amount')
+      .in('category_id', [2, 3, 5, 6, 7, 11])
+      .gte('update_at', prevRange.first).lte('update_at', prevRange.last),
+    supabase.from('row_data').select('category_id, amount')
+      .in('category_id', [2, 3, 5, 6, 7, 11]),
   ])
 
+  const cur = curRes.data || []
+  const prev = prevRes.data || []
+  const all = allRes.data || []
+
+  const allIncome = sumByCategory(all, [2, 11])
+  const allExpense = sumByCategory(all, [3, 5, 6, 7])
+
   return {
-    salary_amount, out_amount, save_amount, life_amount,
-    before_salary_amount, before_out_amount, before_save_amount, before_life_amount,
-    salary_all_amount, before_salary_all_amount,
+    salary_amount: sumByCategory(cur, [2, 11]),
+    out_amount: sumByCategory(cur, [5, 6, 7]),
+    save_amount: sumByCategory(cur, [3]),
+    life_amount: sumByCategory(cur, [7]),
+    before_salary_amount: sumByCategory(prev, [2, 11]),
+    before_out_amount: sumByCategory(prev, [5, 6, 7]),
+    before_save_amount: sumByCategory(prev, [3]),
+    before_life_amount: sumByCategory(prev, [7]),
+    salary_all_amount: allIncome - allExpense,
+    before_salary_all_amount: sumByCategory(prev, [2, 11]) - sumByCategory(prev, [3, 5, 6, 7]),
   }
 }
 
@@ -122,38 +109,37 @@ export async function fetchChartData(year, month) {
   return { pie_chart_data, month_all_amount: Object.values(monthlyTotals) }
 }
 
-// 카테고리 + 네비 가져오기
-export async function fetchCategories() {
-  const [catRes, navRes] = await Promise.all([
-    supabase.from('category').select('id, title').order('id'),
-    supabase.from('category_nav').select('name, title, option, category_id').order('id'),
-  ])
-  return {
-    categories: catRes.data || [],
-    categoryNavs: navRes.data || [],
-  }
+// 카테고리별 월 데이터 가져오기 (단건)
+export async function fetchData(year, month, categoryId) {
+  const all = await fetchAllGridData(year, month)
+  return all[categoryId] || []
 }
 
-// 카테고리별 월 데이터 가져오기
-export async function fetchData(year, month, categoryId) {
+// 전체 그리드 데이터 한번에 가져오기 (1쿼리)
+export async function fetchAllGridData(year, month) {
   const { first, last } = getMonthRange(year, month)
   const { data } = await supabase
     .from('row_data')
-    .select('id, row_key, detail_type, amount, pay_type, update_at, memo')
-    .eq('category_id', categoryId)
+    .select('id, category_id, row_key, detail_type, amount, pay_type, update_at, memo')
+    .in('category_id', [2, 3, 5, 6, 7, 11])
     .gte('update_at', first)
     .lte('update_at', last)
     .order('update_at', { ascending: false })
 
-  return (data || []).map(r => ({
-    row_id: r.id,
-    rowKey: r.row_key,
-    detailType: r.detail_type,
-    amount: r.amount,
-    payType: r.pay_type,
-    update_at: r.update_at ? r.update_at.substring(0, 10) : '',
-    memo: r.memo,
-  }))
+  const grouped = {}
+  ;(data || []).forEach(r => {
+    if (!grouped[r.category_id]) grouped[r.category_id] = []
+    grouped[r.category_id].push({
+      row_id: r.id,
+      rowKey: r.row_key,
+      detailType: r.detail_type,
+      amount: r.amount,
+      payType: r.pay_type,
+      update_at: r.update_at ? r.update_at.substring(0, 10) : '',
+      memo: r.memo,
+    })
+  })
+  return grouped
 }
 
 // 캘린더 월별 데이터
@@ -203,7 +189,7 @@ export async function fetchDayData(year, month, day, categoryIds) {
   }))
 }
 
-// 데이터 등록/수정
+// 데이터 등록/수정 (단건)
 export async function registerData(model) {
   const now = new Date().toISOString()
   const row = {
@@ -218,9 +204,6 @@ export async function registerData(model) {
     row.pay_type = model.payType
   }
 
-  // 로그 저장
-  await supabase.from('data_log').insert({ json_data: JSON.stringify(row), created_at: now })
-
   let id
   if (!model.row_id || model.row_id === 0) {
     row.created_at = now
@@ -231,9 +214,28 @@ export async function registerData(model) {
     await supabase.from('row_data').update(row).eq('id', id)
   }
 
-  // 요약 데이터 다시 계산
-  const summary = await fetchAllData(model.year, model.month)
-  return { id, ...summary }
+  return { id }
+}
+
+// 데이터 일괄 등록 (1쿼리)
+export async function registerBulkData(items) {
+  const now = new Date().toISOString()
+  const rows = items.map(item => {
+    const row = {
+      category_id: item.categoryId,
+      detail_type: item.detailType,
+      amount: Number(item.amount),
+      update_at: item.update_at,
+      memo: '',
+      created_at: now,
+    }
+    if (item.payType) {
+      row.pay_type = item.payType
+    }
+    return row
+  })
+
+  await supabase.from('row_data').insert(rows)
 }
 
 // 데이터 삭제
