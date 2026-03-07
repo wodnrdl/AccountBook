@@ -97,7 +97,7 @@
                   <div class="stat-value">{{ comma(remainingBudget) }}</div>
                   <div class="stat-compare">
                     이월 생활비<br />
-                    <span class="text-info">{{ comma(remainingBudget - 1000000) }}</span>
+                    <span class="text-info">{{ comma(Math.abs(remainingBudget - 1000000)) }}</span>
                   </div>
                 </template>
               </div>
