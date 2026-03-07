@@ -22,6 +22,12 @@ function sumByCategory(rows, categoryIds) {
     .reduce((s, r) => s + Number(r.amount), 0)
 }
 
+// 생활비 누적 설정 (2026년 2월 남은 생활비 4,287원, 매월 +1,000,000원)
+const LIFE_START_YEAR = 2026
+const LIFE_START_MONTH = 2
+const LIFE_INITIAL = 4287
+const LIFE_MONTHLY = 1000000
+
 // 전체 요약 데이터 가져오기 (3쿼리)
 export async function fetchAllData(year, month) {
   let y = Number(year)
@@ -31,23 +37,56 @@ export async function fetchAllData(year, month) {
   const curRange = getMonthRange(year, month)
   const prevRange = getMonthRange(y, pm)
 
-  const [curRes, prevRes, allRes] = await Promise.all([
+  const [curRes, prevRes, lifeAllRes] = await Promise.all([
     supabase.from('row_data').select('category_id, amount')
       .in('category_id', [2, 3, 5, 6, 7, 11])
       .gte('update_at', curRange.first).lte('update_at', curRange.last),
     supabase.from('row_data').select('category_id, amount')
       .in('category_id', [2, 3, 5, 6, 7, 11])
       .gte('update_at', prevRange.first).lte('update_at', prevRange.last),
-    supabase.from('row_data').select('category_id, amount')
-      .in('category_id', [2, 3, 5, 6, 7, 11]),
+    supabase.from('row_data').select('amount, update_at')
+      .eq('category_id', 7)
+      .gte('update_at', `${LIFE_START_YEAR}-${String(LIFE_START_MONTH).padStart(2, '0')}-01 00:00:00`)
+      .lte('update_at', curRange.last),
   ])
 
   const cur = curRes.data || []
   const prev = prevRes.data || []
-  const all = allRes.data || []
+  const lifeAll = lifeAllRes.data || []
 
-  const allIncome = sumByCategory(all, [2, 11])
-  const allExpense = sumByCategory(all, [3, 5, 6, 7])
+  // 월별 생활비 사용액 그룹핑
+  const monthlyExpenses = {}
+  lifeAll.forEach(r => {
+    const key = r.update_at.substring(0, 7)
+    monthlyExpenses[key] = (monthlyExpenses[key] || 0) + Number(r.amount)
+  })
+
+  // 시작월부터 월별로 이월 계산
+  let carryOver = LIFE_INITIAL
+  let sy = LIFE_START_YEAR, sm = LIFE_START_MONTH
+  let beforeRemainingBudget = 0
+  let beforeRemainingMoney = 0
+
+  while (sy < Number(year) || (sy === Number(year) && sm < Number(month))) {
+    const key = `${sy}-${String(sm).padStart(2, '0')}`
+    const spent = monthlyExpenses[key] || 0
+    const remaining = carryOver - spent
+
+    // 전월 값 저장
+    if (sy === y && sm === pm) {
+      beforeRemainingBudget = carryOver
+      beforeRemainingMoney = remaining
+    }
+
+    // 다음달 남은 생활비 = 이번달 남은돈 + 100만원
+    carryOver = remaining + LIFE_MONTHLY
+    sm++
+    if (sm > 12) { sm = 1; sy++ }
+  }
+
+  const remainingBudget = carryOver
+  const curMonthKey = `${year}-${String(month).padStart(2, '0')}`
+  const remainingMoney = remainingBudget - (monthlyExpenses[curMonthKey] || 0)
 
   return {
     salary_amount: sumByCategory(cur, [2, 11]),
@@ -58,8 +97,10 @@ export async function fetchAllData(year, month) {
     before_out_amount: sumByCategory(prev, [5, 6, 7]),
     before_save_amount: sumByCategory(prev, [3]),
     before_life_amount: sumByCategory(prev, [7]),
-    salary_all_amount: allIncome - allExpense,
-    before_salary_all_amount: sumByCategory(prev, [2, 11]) - sumByCategory(prev, [3, 5, 6, 7]),
+    remaining_budget: remainingBudget,
+    remaining_money: remainingMoney,
+    before_remaining_budget: beforeRemainingBudget,
+    before_remaining_money: beforeRemainingMoney,
   }
 }
 

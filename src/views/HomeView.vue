@@ -88,19 +88,16 @@
           <div class="col-6">
             <div class="card stats-card">
               <div class="card-body">
-                <div class="card-title">남은 생활비</div>
+                <div class="card-title">이번달 생활비</div>
                 <template v-if="loading">
                   <div class="skeleton-line tall"></div>
                   <div class="skeleton-line short mt-2"></div>
                 </template>
                 <template v-else>
-                  <div class="stat-value">{{ comma(1000000 - lifeAmount) }}</div>
+                  <div class="stat-value">{{ comma(remainingBudget) }}</div>
                   <div class="stat-compare">
-                    전월 대비<br />
-                    <span :class="lifeAmount - beforeLifeAmount >= 0 ? 'text-danger' : 'text-success'">
-                      <i class="fas" :class="lifeAmount - beforeLifeAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                      {{ comma(lifeAmount - beforeLifeAmount) }}
-                    </span>
+                    이월 생활비<br />
+                    <span class="text-info">{{ comma(remainingBudget - 1000000) }}</span>
                   </div>
                 </template>
               </div>
@@ -116,12 +113,12 @@
                   <div class="skeleton-line short mt-2"></div>
                 </template>
                 <template v-else>
-                  <div class="stat-value">{{ comma(salaryAllAmount) }}</div>
+                  <div class="stat-value">{{ comma(remainingMoney) }}</div>
                   <div class="stat-compare">
-                    전월 대비<br />
-                    <span :class="salaryAllAmount - beforeSalaryAllAmount >= 0 ? 'text-success' : 'text-danger'">
-                      <i class="fas" :class="salaryAllAmount - beforeSalaryAllAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                      {{ comma(salaryAllAmount - beforeSalaryAllAmount) }}
+                    전월 사용 대비<br />
+                    <span :class="lifeAmount - beforeLifeAmount <= 0 ? 'text-success' : 'text-danger'">
+                      <i class="fas" :class="lifeAmount - beforeLifeAmount <= 0 ? 'fa-arrow-down' : 'fa-arrow-up'"></i>
+                      {{ comma(lifeAmount - beforeLifeAmount) }}
                     </span>
                   </div>
                 </template>
@@ -204,8 +201,10 @@ const beforeSalaryAmount = ref(0)
 const beforeOutAmount = ref(0)
 const beforeSaveAmount = ref(0)
 const beforeLifeAmount = ref(0)
-const salaryAllAmount = ref(0)
-const beforeSalaryAllAmount = ref(0)
+const remainingBudget = ref(0)
+const remainingMoney = ref(0)
+const beforeRemainingBudget = ref(0)
+const beforeRemainingMoney = ref(0)
 
 const activeTab = ref('calendar')
 let pieChart = null
@@ -232,8 +231,10 @@ async function loadAllData() {
   beforeOutAmount.value = d.before_out_amount
   beforeSaveAmount.value = d.before_save_amount
   beforeLifeAmount.value = d.before_life_amount
-  salaryAllAmount.value = d.salary_all_amount
-  beforeSalaryAllAmount.value = d.before_salary_all_amount
+  remainingBudget.value = d.remaining_budget
+  remainingMoney.value = d.remaining_money
+  beforeRemainingBudget.value = d.before_remaining_budget
+  beforeRemainingMoney.value = d.before_remaining_money
   loading.value = false
 }
 
