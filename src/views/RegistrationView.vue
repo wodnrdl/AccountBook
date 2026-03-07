@@ -55,7 +55,7 @@
                     전월 대비<br />
                     <span :class="salaryAmount - beforeSalaryAmount >= 0 ? 'text-success' : 'text-danger'">
                       <i class="fas" :class="salaryAmount - beforeSalaryAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                      {{ comma(salaryAmount - beforeSalaryAmount) }}
+                      {{ comma(Math.abs(salaryAmount - beforeSalaryAmount)) }}
                     </span>
                   </div>
                 </template>
@@ -77,7 +77,7 @@
                     전월 대비<br />
                     <span :class="beforeOutAmount - outAmount >= 0 ? 'text-success' : 'text-danger'">
                       <i class="fas" :class="beforeOutAmount - outAmount >= 0 ? 'fa-arrow-down' : 'fa-arrow-up'"></i>
-                      {{ comma(beforeOutAmount - outAmount) }}
+                      {{ comma(Math.abs(beforeOutAmount - outAmount)) }}
                     </span>
                   </div>
                 </template>
@@ -118,7 +118,7 @@
                     전월 사용 대비<br />
                     <span :class="lifeAmount - beforeLifeAmount <= 0 ? 'text-success' : 'text-danger'">
                       <i class="fas" :class="lifeAmount - beforeLifeAmount <= 0 ? 'fa-arrow-down' : 'fa-arrow-up'"></i>
-                      {{ comma(lifeAmount - beforeLifeAmount) }}
+                      {{ comma(Math.abs(lifeAmount - beforeLifeAmount)) }}
                     </span>
                   </div>
                 </template>
@@ -140,7 +140,7 @@
                     전월 대비<br />
                     <span :class="saveAmount - beforeSaveAmount >= 0 ? 'text-success' : 'text-danger'">
                       <i class="fas" :class="saveAmount - beforeSaveAmount >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
-                      {{ comma(saveAmount - beforeSaveAmount) }}
+                      {{ comma(Math.abs(saveAmount - beforeSaveAmount)) }}
                     </span>
                   </div>
                 </template>
