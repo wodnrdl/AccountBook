@@ -345,6 +345,8 @@ async function doDelete() {
 
 async function reload() {
   loading.value = true
+  // 이전 달 거래 잔상 제거
+  items.value = []
   try {
     const [txs, accs, pays] = await Promise.all([
       listTransactions({ ym: ym.value }),

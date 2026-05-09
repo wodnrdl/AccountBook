@@ -264,6 +264,10 @@ const recurringGroups = computed(() => {
 async function load() {
   loading.value = true
   error.value = ''
+  // 이전 달 데이터 잔상 제거
+  d.value = emptyDashboard()
+  recurring.value = []
+  living.value = null
   try {
     // 1) 누락된 매월 생활비 충전 자동 적용
     const charge = await applyLivingBudgetCharges()

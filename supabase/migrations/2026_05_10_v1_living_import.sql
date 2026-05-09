@@ -90,15 +90,17 @@ BEGIN
     UPDATE accounts SET balance = balance - v_total WHERE id = target_id;
   END IF;
 
-  -- start_ym 을 가장 이른 v1 월로
-  SELECT TO_CHAR(MIN(update_at), 'YYYY-MM') INTO earliest_ym
-    FROM row_data WHERE category_id = 7;
+  -- start_ym 을 '2026-03' 으로 고정 (v1 의 실질 시작월)
+  earliest_ym := '2026-03';
+  UPDATE living_budget
+     SET start_ym = earliest_ym, updated_at = NOW()
+   WHERE start_ym <> earliest_ym;
 
-  IF earliest_ym IS NOT NULL THEN
-    UPDATE living_budget
-       SET start_ym = earliest_ym, updated_at = NOW()
-     WHERE start_ym > earliest_ym;
-  END IF;
+  -- 생활비 recurring_item 도 start_ym 동기화
+  UPDATE recurring_items
+     SET start_ym = earliest_ym
+   WHERE name = '생활비' AND kind = 'transfer'
+     AND start_ym <> earliest_ym;
 
   RETURN QUERY SELECT v_inserted, v_total, target_name, earliest_ym;
 END;

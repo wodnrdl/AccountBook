@@ -357,6 +357,8 @@ async function doDelete() {
 // ====== 데이터 로딩 ======
 async function reload() {
   loading.value = true
+  // 이전 달 항목 잔상 제거
+  items.value = []
   try {
     const [recs, accs, lb] = await Promise.all([
       listRecurring({ ym: ym.value, activeOnly: !showInactive.value }),
