@@ -141,7 +141,7 @@
 - [ ] 사용자가 Supabase SQL Editor 에서 마이그레이션 실행
 - [ ] Phase 6.5 커밋 ⬅ **다음**
 
-### Phase 6.6 — 생활비 봉투 시스템 ✅ (사용자 SQL 실행 필요)
+### Phase 6.6 — 생활비 봉투 시스템 ✅
 - [x] `supabase/migrations/2026_05_10_living_budget.sql`
   - `living_budget` 테이블 (월 충전액 / 시작월 / 활성)
   - `increment_account_balance` RPC (거래↔잔액 자동 동기화)
@@ -157,7 +157,20 @@
 - [ ] 사용자가 Supabase SQL Editor 에서 마이그레이션 실행
 - [ ] Phase 6.6 커밋 ⬅ **다음**
 
-### Phase 7 — 마무리 ⬅ **여기 진행 예정**
+### Phase 6.7 — 생활비 carry-over / 자동 충전 강화 ✅
+- [x] 월말 날짜 버그 수정 (lte('date','${ym}-31') → ymRange 헬퍼)
+  - 4·6·9·11·2월 거래 누락 문제 해결
+- [x] fetchLivingBudgetStatus 가 carryOver / remaining 반환
+- [x] 대시보드 봉투 카드 4분할 (이월/충전/사용/잔여)
+- [x] 거래 페이지 요약카드 4분할 (이월/수입/지출/잔여 이월포함)
+- [x] 마이그레이션이 자동 충전 transactions 도 직접 INSERT (멱등)
+  - `inserted_charges`, `charges_total` 결과로 표시
+- [x] 대시보드 "지금 충전 (수동)" 버튼 추가 (재시도/진단용)
+
+### Phase 7 — 마무리 ✅
+- [x] `/` 기본 진입을 `/v2` 로 변경
+- [x] 기존 사이드바(App.vue)에 "새 버전 (v2)" 링크 추가
+- [x] V2_REDESIGN.md 정리
 - [ ] `/` 기본 진입을 `/v2`로 변경
 - [ ] README/CLAUDE.md 업데이트
 - [ ] main 으로 머지 vs 별도 배포 결정

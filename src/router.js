@@ -11,7 +11,7 @@ import V2Recurring from './views/v2/Recurring.vue'
 import V2Transactions from './views/v2/Transactions.vue'
 
 const routes = [
-  { path: '/', redirect: '/home' },
+  { path: '/', redirect: '/v2' },
   { path: '/login', component: LoginView, meta: { public: true } },
   { path: '/home', component: HomeView },
   { path: '/registration', component: RegistrationView },
