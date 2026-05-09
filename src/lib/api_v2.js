@@ -4,6 +4,7 @@ import { supabase } from './supabase.js'
 export const OWNERS = ['재욱', '공주님', '공동']
 
 export const ACCOUNT_TYPES = [
+  { value: 'envelope',    label: '봉투 (가상)' },
   { value: 'savings',     label: '예금' },
   { value: 'installment', label: '적금' },
   { value: 'housing',     label: '주택청약' },
