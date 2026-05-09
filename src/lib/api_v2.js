@@ -1,7 +1,7 @@
 import { supabase } from './supabase.js'
 
 // ----- 공통 -----
-export const OWNERS = ['재욱', '공주님', '공동', '우주']
+export const OWNERS = ['재욱', '공주님', '공동']
 
 export const ACCOUNT_TYPES = [
   { value: 'savings',     label: '예금' },
@@ -59,6 +59,33 @@ export async function updateAccount(id, fields) {
 
 export async function deleteAccount(id) {
   const { error } = await supabase.from('accounts').delete().eq('id', id)
+  if (error) throw error
+}
+
+// 결제 계좌 (거래 등록 시 선택 가능)
+export async function listPaymentAccounts() {
+  const { data, error } = await supabase
+    .from('accounts')
+    .select('*')
+    .eq('tx_enabled', true)
+    .order('tx_default', { ascending: false })
+    .order('owner').order('sort_order').order('id')
+  if (error) throw error
+  return data || []
+}
+
+// 기본 결제 계좌 지정 (다른 행은 자동으로 false)
+export async function setDefaultPaymentAccount(id) {
+  // 1) 모든 행 false 로
+  const { error: e1 } = await supabase.from('accounts').update({ tx_default: false }).eq('tx_default', true)
+  if (e1) throw e1
+  // 2) 지정한 한 건만 true (tx_enabled 도 함께 보장)
+  const { error: e2 } = await supabase.from('accounts').update({ tx_default: true, tx_enabled: true }).eq('id', id)
+  if (e2) throw e2
+}
+
+export async function clearDefaultPaymentAccount() {
+  const { error } = await supabase.from('accounts').update({ tx_default: false }).eq('tx_default', true)
   if (error) throw error
 }
 

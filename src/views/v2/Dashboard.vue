@@ -165,7 +165,6 @@ const OWNER_COLORS = {
   '재욱':   '#5e72e4',
   '공주님': '#f5365c',
   '공동':   '#2dce89',
-  '우주':   '#fb8c00',
 }
 
 const today = new Date()
@@ -185,7 +184,7 @@ function emptyDashboard() {
     tx: { income: 0, expense: 0 },
     accounts: [],
     assetTotal: 0, liabilityTotal: 0, netWorth: 0,
-    byOwner: { '재욱': 0, '공주님': 0, '공동': 0, '우주': 0 },
+    byOwner: { '재욱': 0, '공주님': 0, '공동': 0 },
   }
 }
 

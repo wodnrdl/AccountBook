@@ -63,9 +63,11 @@
           <div v-for="a in group" :key="a.id" class="col-12 col-md-6 col-xl-4">
             <div class="card account-card" :class="{ liability: a.is_liability }">
               <div class="ac-head">
-                <div>
+                <div class="ac-tags">
                   <span class="badge bg-light text-dark me-1">{{ typeLabel(a.type) }}</span>
-                  <span v-if="a.is_liability" class="badge bg-danger">부채</span>
+                  <span v-if="a.is_liability" class="badge bg-danger me-1">부채</span>
+                  <span v-if="a.tx_default" class="badge bg-warning text-dark me-1" title="기본 결제 계좌"><i class="fas fa-star"></i> 기본</span>
+                  <span v-else-if="a.tx_enabled" class="badge bg-info text-dark me-1" title="거래에서 선택 가능"><i class="fas fa-credit-card"></i> 거래용</span>
                 </div>
                 <div class="ac-actions">
                   <button class="icon-btn" title="잔액 수정" @click="openBalance(a)">
@@ -119,6 +121,25 @@
         <input id="isLiab" v-model="form.is_liability" type="checkbox" class="form-check-input" />
         <label for="isLiab" class="form-check-label small">부채 (대출 등)</label>
       </div>
+
+      <hr class="my-2" />
+      <div class="form-check mb-1">
+        <input id="txEnabled" v-model="form.tx_enabled" type="checkbox" class="form-check-input"
+               @change="onTxEnabledChange" />
+        <label for="txEnabled" class="form-check-label small">
+          <i class="fas fa-credit-card text-info"></i> 거래에서 사용
+          <span class="text-muted ms-1">(거래 등록 시 계좌 셀렉트에 노출)</span>
+        </label>
+      </div>
+      <div class="form-check mb-2">
+        <input id="txDefault" v-model="form.tx_default" type="checkbox" class="form-check-input"
+               :disabled="!form.tx_enabled" />
+        <label for="txDefault" class="form-check-label small">
+          <i class="fas fa-star text-warning"></i> 기본 결제 계좌로 사용
+          <span class="text-muted ms-1">(거래 추가 시 자동 선택)</span>
+        </label>
+      </div>
+
       <div class="mb-2">
         <label class="form-label small">메모</label>
         <input v-model="form.memo" class="form-control" />
@@ -174,6 +195,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   listAccounts, createAccount, updateAccount, deleteAccount, updateBalance,
+  setDefaultPaymentAccount, clearDefaultPaymentAccount,
   listSnapshotsRange,
   won, ymNow,
   ACCOUNT_TYPES, OWNERS,
@@ -185,7 +207,6 @@ const OWNER_COLORS = {
   '재욱':   '#5e72e4',
   '공주님': '#f5365c',
   '공동':   '#2dce89',
-  '우주':   '#fb8c00',
 }
 const ownerColor = (o) => OWNER_COLORS[o] || '#8898aa'
 const typeLabel = (t) => ACCOUNT_TYPES.find(x => x.value === t)?.label || t
@@ -269,33 +290,55 @@ const chartSeries = computed(() => {
 const formOpen = ref(false)
 const form = ref(emptyForm())
 function emptyForm() {
-  return { id: null, name: '', type: 'savings', owner: '재욱', balance: 0, is_liability: false, memo: '' }
+  return {
+    id: null, name: '', type: 'savings', owner: '재욱',
+    balance: 0, is_liability: false,
+    tx_enabled: false, tx_default: false,
+    memo: '',
+  }
 }
 function openCreate() { form.value = emptyForm(); formOpen.value = true }
 function openEdit(a) {
   form.value = {
     id: a.id, name: a.name, type: a.type, owner: a.owner,
-    balance: a.balance, is_liability: a.is_liability, memo: a.memo || '',
+    balance: a.balance, is_liability: a.is_liability,
+    tx_enabled: !!a.tx_enabled, tx_default: !!a.tx_default,
+    memo: a.memo || '',
   }
   formOpen.value = true
+}
+function onTxEnabledChange() {
+  if (!form.value.tx_enabled) form.value.tx_default = false
 }
 async function saveForm() {
   saving.value = true
   try {
+    const wantDefault = !!form.value.tx_default && !!form.value.tx_enabled
     const payload = {
       name: form.value.name.trim(),
       type: form.value.type,
       owner: form.value.owner,
       balance: Number(form.value.balance) || 0,
       is_liability: !!form.value.is_liability,
+      tx_enabled: !!form.value.tx_enabled,
+      // 기본값 처리는 setDefaultPaymentAccount 로 따로 처리
+      tx_default: false,
       memo: form.value.memo || null,
     }
-    if (form.value.id) {
-      await updateAccount(form.value.id, payload)
+    let id = form.value.id
+    if (id) {
+      await updateAccount(id, payload)
     } else {
       const a = await createAccount(payload)
-      // 생성 시 현재 월 스냅샷 자동 기록
+      id = a.id
       await updateBalance(a.id, payload.balance, ymNow())
+    }
+    if (wantDefault) {
+      await setDefaultPaymentAccount(id)
+    } else if (form.value.id) {
+      // 기존에 기본이었는데 해제된 경우만 기본 해제
+      const wasDefault = accounts.value.find(x => x.id === id)?.tx_default
+      if (wasDefault) await clearDefaultPaymentAccount()
     }
     formOpen.value = false
     await reload()

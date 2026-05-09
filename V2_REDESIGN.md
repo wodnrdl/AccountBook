@@ -29,7 +29,8 @@
 시드 데이터: `supabase/seed_v2.sql`
 
 ### owner 값
-`재욱`, `공주님`, `공동`, `우주` — TEXT 컬럼으로 단순화 (별도 profile 테이블 X)
+`재욱`, `공주님`, `공동` — TEXT 컬럼으로 단순화 (별도 profile 테이블 X)
+※ 초기에 '우주' 도 있었으나 2026-05-10 마이그레이션으로 '공주님' 으로 통합됨
 
 ### kind / type 값
 
@@ -127,6 +128,18 @@
 - [x] 빈 상태 안내 + "첫 거래 등록" 버튼
 - [x] `npm run build` 통과
 - [ ] Phase 6 커밋 ⬅ **다음**
+
+### Phase 6.5 — 결제 계좌 + 우주→공주님 통합 ✅ (사용자 SQL 실행 필요)
+- [x] `supabase/migrations/2026_05_10_payment_accounts.sql` 작성
+  - accounts.tx_enabled / tx_default 컬럼 추가 (부분 유니크 인덱스로 기본값 1개 보장)
+  - 우주 → 공주님 owner 일괄 업데이트
+- [x] `api_v2.js`: OWNERS 에서 우주 제거, listPaymentAccounts/setDefaultPaymentAccount 추가
+- [x] `Assets.vue`: 편집 모달에 "거래에서 사용" / "기본 결제 계좌" 토글, 카드에 뱃지 표시
+- [x] `Transactions.vue`: 모달 셀렉트가 결제 계좌만 노출, 신규 거래 시 기본 결제 계좌 자동 선택, 결제 계좌 없으면 안내
+- [x] Dashboard.vue 의 OWNER_COLORS 정리
+- [x] `npm run build` 통과
+- [ ] 사용자가 Supabase SQL Editor 에서 마이그레이션 실행
+- [ ] Phase 6.5 커밋 ⬅ **다음**
 
 ### Phase 7 — 마무리 ⬅ **여기 진행 예정**
 - [ ] `/` 기본 진입을 `/v2`로 변경

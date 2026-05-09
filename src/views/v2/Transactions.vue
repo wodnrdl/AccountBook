@@ -145,11 +145,17 @@
         </datalist>
       </div>
       <div class="mb-2">
-        <label class="form-label small">계좌 (선택)</label>
-        <select v-model="form.account_id" class="form-select">
+        <label class="form-label small">계좌</label>
+        <select v-if="paymentAccounts.length" v-model="form.account_id" class="form-select">
           <option :value="null">— 없음 —</option>
-          <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.owner }} · {{ a.name }}</option>
+          <option v-for="a in paymentAccounts" :key="a.id" :value="a.id">
+            {{ a.tx_default ? '⭐ ' : '' }}{{ a.owner }} · {{ a.name }}
+          </option>
         </select>
+        <div v-else class="form-text text-warning small">
+          <i class="fas fa-info-circle"></i>
+          결제용으로 지정된 계좌가 없습니다. <router-link to="/v2/assets">자산 관리</router-link> 에서 "거래에서 사용" 을 켜주세요.
+        </div>
       </div>
       <div class="mb-2">
         <label class="form-label small">메모</label>
@@ -184,7 +190,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
-  listAccounts,
+  listAccounts, listPaymentAccounts,
   won, OWNERS,
 } from '../../lib/api_v2.js'
 import Modal from './components/Modal.vue'
@@ -198,9 +204,12 @@ const month = ref(today.getMonth() + 1)
 const ym = computed(() => `${year.value}-${String(month.value).padStart(2, '0')}`)
 
 const items = ref([])
-const accounts = ref([])
+const accounts = ref([])         // 모든 계좌 (목록의 계좌명 표시용)
+const paymentAccounts = ref([])  // tx_enabled=true 만 (모달 셀렉트용)
 const loading = ref(true)
 const saving = ref(false)
+
+const defaultPaymentId = computed(() => paymentAccounts.value.find(a => a.tx_default)?.id || null)
 
 const filters = ref({ kind: 'all', owner: 'all', category: 'all' })
 
@@ -274,7 +283,7 @@ function emptyForm() {
     amount: 0,
     category: '',
     owner: '재욱',
-    account_id: null,
+    account_id: defaultPaymentId.value,
     memo: '',
   }
 }
@@ -337,12 +346,14 @@ async function doDelete() {
 async function reload() {
   loading.value = true
   try {
-    const [txs, accs] = await Promise.all([
+    const [txs, accs, pays] = await Promise.all([
       listTransactions({ ym: ym.value }),
       listAccounts(),
+      listPaymentAccounts(),
     ])
     items.value = txs
     accounts.value = accs
+    paymentAccounts.value = pays
   } finally { loading.value = false }
 }
 
