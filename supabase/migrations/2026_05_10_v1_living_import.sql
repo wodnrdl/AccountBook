@@ -42,15 +42,21 @@ WHERE NOT EXISTS (
   SELECT 1 FROM recurring_items WHERE name = '생활비' AND kind = 'transfer'
 );
 
--- 4) v1 → v2 마이그레이션 함수
+-- 4) v1 → v2 마이그레이션 함수 + 자동 충전 transactions INSERT
 CREATE OR REPLACE FUNCTION migrate_v1_living_expenses()
-RETURNS TABLE(inserted_count INT, total_amount BIGINT, target_account TEXT, start_month TEXT) AS $$
+RETURNS TABLE(inserted_expenses INT, expenses_total BIGINT,
+              inserted_charges INT, charges_total BIGINT,
+              target_account TEXT, start_month TEXT) AS $$
 DECLARE
   target_id   BIGINT;
   target_name TEXT;
   v_inserted  INT    := 0;
   v_total     BIGINT := 0;
+  v_charges   INT    := 0;
+  v_charge_total BIGINT := 0;
   earliest_ym TEXT;
+  cur_ym      TEXT;
+  monthly     BIGINT;
 BEGIN
   SELECT id, name INTO target_id, target_name
     FROM accounts WHERE tx_default = TRUE LIMIT 1;
@@ -59,7 +65,7 @@ BEGIN
     RAISE EXCEPTION '기본 결제 계좌(생활비)가 생성되지 않았습니다.';
   END IF;
 
-  -- 멱등 INSERT
+  -- 4-1) v1 row_data 생활비(category_id=7) → expense 멱등 INSERT
   WITH new_txs AS (
     INSERT INTO transactions (date, amount, kind, category, owner, account_id, memo, created_at)
     SELECT
@@ -85,24 +91,59 @@ BEGIN
   )
   SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_inserted, v_total FROM new_txs;
 
-  -- 봉투 잔액 차감
   IF v_total > 0 THEN
     UPDATE accounts SET balance = balance - v_total WHERE id = target_id;
   END IF;
 
-  -- start_ym 을 '2026-03' 으로 고정 (v1 의 실질 시작월)
+  -- 4-2) start_ym 을 '2026-03' 으로 고정
   earliest_ym := '2026-03';
   UPDATE living_budget
      SET start_ym = earliest_ym, updated_at = NOW()
    WHERE start_ym <> earliest_ym;
 
-  -- 생활비 recurring_item 도 start_ym 동기화
   UPDATE recurring_items
      SET start_ym = earliest_ym
    WHERE name = '생활비' AND kind = 'transfer'
      AND start_ym <> earliest_ym;
 
-  RETURN QUERY SELECT v_inserted, v_total, target_name, earliest_ym;
+  -- 4-3) start_ym ~ 현재월 까지 매월 1일 +monthly_amount 자동 충전 (멱등)
+  SELECT monthly_amount INTO monthly FROM living_budget LIMIT 1;
+  cur_ym := TO_CHAR(NOW(), 'YYYY-MM');
+
+  WITH series AS (
+    SELECT TO_CHAR(d, 'YYYY-MM') AS ym
+    FROM generate_series(
+      TO_DATE(earliest_ym || '-01', 'YYYY-MM-DD'),
+      TO_DATE(cur_ym      || '-01', 'YYYY-MM-DD'),
+      '1 month'::interval
+    ) AS d
+  ),
+  new_charges AS (
+    INSERT INTO transactions (date, amount, kind, category, owner, account_id, memo)
+    SELECT
+      (s.ym || '-01')::date,
+      monthly,
+      'income',
+      '생활비 충전',
+      '공동',
+      target_id,
+      '자동 생활비 충전'
+    FROM series s
+    WHERE NOT EXISTS (
+      SELECT 1 FROM transactions t
+      WHERE t.category   = '생활비 충전'
+        AND t.account_id = target_id
+        AND TO_CHAR(t.date, 'YYYY-MM') = s.ym
+    )
+    RETURNING amount
+  )
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_charges, v_charge_total FROM new_charges;
+
+  IF v_charge_total > 0 THEN
+    UPDATE accounts SET balance = balance + v_charge_total WHERE id = target_id;
+  END IF;
+
+  RETURN QUERY SELECT v_inserted, v_total, v_charges, v_charge_total, target_name, earliest_ym;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -113,5 +154,14 @@ COMMIT;
 
 -- 확인용
 -- SELECT name, type, owner, balance, tx_default FROM accounts WHERE tx_default;
--- SELECT MIN(date), MAX(date), COUNT(*), SUM(amount) FROM transactions WHERE memo LIKE '[v1]%';
 -- SELECT * FROM living_budget;
+-- SELECT MIN(date), MAX(date), COUNT(*), SUM(amount) FROM transactions WHERE memo LIKE '[v1]%';
+-- SELECT date, amount, category FROM transactions WHERE category = '생활비 충전' ORDER BY date;
+-- 월별 합계
+-- SELECT TO_CHAR(date, 'YYYY-MM') AS ym,
+--        SUM(CASE WHEN kind='income'  THEN amount ELSE 0 END) AS income,
+--        SUM(CASE WHEN kind='expense' THEN amount ELSE 0 END) AS expense,
+--        SUM(CASE WHEN kind='income'  THEN amount ELSE -amount END) AS net
+-- FROM transactions
+-- WHERE account_id = (SELECT id FROM accounts WHERE tx_default LIMIT 1)
+-- GROUP BY 1 ORDER BY 1;

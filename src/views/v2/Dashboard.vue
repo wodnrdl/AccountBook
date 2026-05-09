@@ -75,8 +75,21 @@
         <router-link to="/v2/recurring" class="btn btn-sm btn-outline-primary">설정</router-link>
       </div>
 
-      <div v-if="livingNotice" class="alert alert-warning small p-2 mb-2">
-        <i class="fas fa-info-circle"></i> {{ livingNotice }}
+      <div v-if="livingNotice" class="alert alert-warning small p-2 mb-2 d-flex align-items-center gap-2">
+        <i class="fas fa-info-circle"></i>
+        <span class="me-auto">{{ livingNotice }}</span>
+        <button class="btn btn-sm btn-warning" :disabled="charging" @click="manualCharge">
+          <i v-if="charging" class="fas fa-spinner fa-spin"></i>
+          지금 충전 다시 시도
+        </button>
+      </div>
+      <div v-else-if="living.target && living.charged === 0 && !loading" class="alert alert-info small p-2 mb-2 d-flex align-items-center gap-2">
+        <i class="fas fa-info-circle"></i>
+        <span class="me-auto">이번 달 자동 충전 기록이 없습니다.</span>
+        <button class="btn btn-sm btn-primary" :disabled="charging" @click="manualCharge">
+          <i v-if="charging" class="fas fa-spinner fa-spin"></i>
+          지금 충전
+        </button>
       </div>
 
       <div v-if="living.target" class="row g-2 living-stats">
@@ -221,6 +234,28 @@ const d = ref(emptyDashboard())
 const recurring = ref([])
 const living = ref(null)        // 생활비 봉투 상태
 const livingNotice = ref('')    // 안내 메시지 (기본계좌 미설정 등)
+const charging = ref(false)     // 수동 충전 진행중
+
+async function manualCharge() {
+  charging.value = true
+  try {
+    const res = await applyLivingBudgetCharges()
+    if (res.applied > 0) {
+      alert(`자동 충전 ${res.applied}건이 추가되었습니다.`)
+    } else if (res.reason === 'no_default_account') {
+      alert('기본 결제 계좌(생활비 봉투)가 없습니다. 마이그레이션 SQL 을 실행하세요.')
+    } else if (res.reason === 'inactive') {
+      alert('생활비 봉투가 비활성 상태입니다. 고정지출 페이지에서 활성화하세요.')
+    } else {
+      alert('이미 모든 월에 충전 완료되어 있습니다. (추가 충전 없음)')
+    }
+    await load()
+  } catch (e) {
+    alert('충전 실패: ' + (e.message || String(e)))
+  } finally {
+    charging.value = false
+  }
+}
 
 function emptyDashboard() {
   return {
