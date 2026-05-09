@@ -1,55 +1,414 @@
 <template>
-  <div class="v2-page">
-    <h2 class="page-title"><i class="fas fa-wallet"></i> 자산</h2>
-    <p class="text-muted">Phase 4 에서 구현 예정 — 계좌별 잔액 카드, 월별 추이</p>
-    <div v-if="loading" class="text-muted">불러오는 중...</div>
-    <div v-else>
-      <div v-for="(group, owner) in grouped" :key="owner" class="mb-4">
-        <h5>{{ owner }} <span class="text-muted small">합계 {{ won(sumOf(group)) }}</span></h5>
-        <ul class="list-group">
-          <li v-for="a in group" :key="a.id" class="list-group-item d-flex justify-content-between">
-            <span>
-              <span class="badge bg-light text-dark me-2">{{ typeLabel(a.type) }}</span>
-              {{ a.name }}
-              <span v-if="a.is_liability" class="badge bg-danger ms-1">부채</span>
-            </span>
-            <strong :class="a.is_liability ? 'text-danger' : ''">{{ won(a.balance) }}</strong>
-          </li>
-        </ul>
+  <div class="v2-page assets">
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+      <h2 class="page-title m-0"><i class="fas fa-wallet"></i> 자산</h2>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-light" @click="reload" :disabled="loading">
+          <i class="fas fa-sync-alt" :class="{ 'fa-spin': loading }"></i>
+        </button>
+        <button class="btn btn-sm btn-primary" @click="openCreate">
+          <i class="fas fa-plus"></i> 계좌 추가
+        </button>
       </div>
     </div>
+
+    <!-- 요약 -->
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-md-4">
+        <div class="card stat asset"><div class="stat-label">자산 합계</div>
+          <div class="stat-value">{{ won(assetTotal) }}</div></div>
+      </div>
+      <div class="col-12 col-md-4">
+        <div class="card stat liab"><div class="stat-label">부채 합계</div>
+          <div class="stat-value text-danger">{{ won(liabTotal) }}</div></div>
+      </div>
+      <div class="col-12 col-md-4">
+        <div class="card stat net"><div class="stat-label">순자산</div>
+          <div class="stat-value" :class="net < 0 ? 'text-danger' : ''">{{ won(net) }}</div></div>
+      </div>
+    </div>
+
+    <!-- 소유자 필터 -->
+    <div class="owner-tabs mb-3">
+      <button class="owner-tab" :class="{ active: filterOwner === 'all' }" @click="filterOwner = 'all'">
+        전체 <span class="cnt">{{ accounts.length }}</span>
+      </button>
+      <button v-for="o in OWNERS" :key="o" class="owner-tab"
+              :class="{ active: filterOwner === o }" @click="filterOwner = o">
+        {{ o }} <span class="cnt">{{ countByOwner[o] || 0 }}</span>
+      </button>
+    </div>
+
+    <!-- 추이 차트 -->
+    <div class="card section mb-3">
+      <div class="section-head">
+        <div>
+          <div class="section-title"><i class="fas fa-chart-line text-primary"></i> 월별 추이</div>
+          <div class="section-sub text-muted">소유자별 자산 합계 (최근 6개월)</div>
+        </div>
+      </div>
+      <LineChart v-if="chartMonths.length" :months="chartMonths" :series="chartSeries" />
+      <div v-else class="text-muted small">스냅샷 데이터 없음</div>
+    </div>
+
+    <!-- 계좌 카드 -->
+    <div v-if="loading && !accounts.length" class="text-muted">불러오는 중...</div>
+    <div v-else>
+      <div v-for="(group, owner) in displayGroups" :key="owner" class="mb-3">
+        <div class="group-head">
+          <span class="owner-badge" :style="{ background: ownerColor(owner) }">{{ owner }}</span>
+          <span class="text-muted small">합계 {{ won(sumOf(group)) }}</span>
+        </div>
+        <div class="row g-2">
+          <div v-for="a in group" :key="a.id" class="col-12 col-md-6 col-xl-4">
+            <div class="card account-card" :class="{ liability: a.is_liability }">
+              <div class="ac-head">
+                <div>
+                  <span class="badge bg-light text-dark me-1">{{ typeLabel(a.type) }}</span>
+                  <span v-if="a.is_liability" class="badge bg-danger">부채</span>
+                </div>
+                <div class="ac-actions">
+                  <button class="icon-btn" title="잔액 수정" @click="openBalance(a)">
+                    <i class="fas fa-coins"></i>
+                  </button>
+                  <button class="icon-btn" title="편집" @click="openEdit(a)">
+                    <i class="fas fa-pen"></i>
+                  </button>
+                  <button class="icon-btn danger" title="삭제" @click="confirmDelete(a)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="ac-name">{{ a.name }}</div>
+              <div class="ac-balance" :class="a.is_liability ? 'text-danger' : ''">{{ won(a.balance) }}</div>
+              <div v-if="a.memo" class="ac-memo text-muted small">{{ a.memo }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="!filteredAccounts.length" class="text-muted small">표시할 계좌 없음</div>
+    </div>
+
+    <!-- 계좌 추가/편집 모달 -->
+    <Modal v-model="formOpen" :title="form.id ? '계좌 편집' : '계좌 추가'" size="md">
+      <div class="mb-2">
+        <label class="form-label small">이름</label>
+        <input v-model="form.name" class="form-control" placeholder="예: 우리 예금1" />
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="form-label small">타입</label>
+          <select v-model="form.type" class="form-select">
+            <option v-for="t in ACCOUNT_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label small">소유자</label>
+          <select v-model="form.owner" class="form-select">
+            <option v-for="o in OWNERS" :key="o" :value="o">{{ o }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-12">
+          <label class="form-label small">{{ form.id ? '잔액(편집은 별도 잔액수정 권장)' : '초기 잔액' }}</label>
+          <input v-model.number="form.balance" type="number" class="form-control" />
+        </div>
+      </div>
+      <div class="form-check mb-2">
+        <input id="isLiab" v-model="form.is_liability" type="checkbox" class="form-check-input" />
+        <label for="isLiab" class="form-check-label small">부채 (대출 등)</label>
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">메모</label>
+        <input v-model="form.memo" class="form-control" />
+      </div>
+      <template #footer>
+        <button class="btn btn-light" @click="formOpen = false">취소</button>
+        <button class="btn btn-primary" :disabled="!form.name || saving" @click="saveForm">
+          <i v-if="saving" class="fas fa-spinner fa-spin"></i>
+          {{ form.id ? '저장' : '추가' }}
+        </button>
+      </template>
+    </Modal>
+
+    <!-- 잔액 수정 모달 -->
+    <Modal v-model="balanceOpen" title="잔액 수정" size="sm">
+      <div v-if="balTarget" class="mb-2 small text-muted">
+        <strong>{{ balTarget.name }}</strong> · 현재 {{ won(balTarget.balance) }}
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">새 잔액</label>
+        <input v-model.number="balForm.balance" type="number" class="form-control" autofocus />
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">적용 월 (스냅샷 기록)</label>
+        <input v-model="balForm.ym" class="form-control" placeholder="2026-05" />
+      </div>
+      <template #footer>
+        <button class="btn btn-light" @click="balanceOpen = false">취소</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveBalance">
+          <i v-if="saving" class="fas fa-spinner fa-spin"></i> 저장
+        </button>
+      </template>
+    </Modal>
+
+    <!-- 삭제 확인 -->
+    <Modal v-model="deleteOpen" title="계좌 삭제" size="sm">
+      <p class="mb-1">정말 삭제하시겠어요?</p>
+      <p v-if="delTarget" class="small text-muted m-0">
+        {{ delTarget.name }} ({{ delTarget.owner }}, {{ won(delTarget.balance) }})<br />
+        스냅샷 기록도 함께 삭제됩니다.
+      </p>
+      <template #footer>
+        <button class="btn btn-light" @click="deleteOpen = false">취소</button>
+        <button class="btn btn-danger" :disabled="saving" @click="doDelete">
+          <i v-if="saving" class="fas fa-spinner fa-spin"></i> 삭제
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { listAccounts, won, ACCOUNT_TYPES } from '../../lib/api_v2.js'
+import {
+  listAccounts, createAccount, updateAccount, deleteAccount, updateBalance,
+  listSnapshotsRange,
+  won, ymNow,
+  ACCOUNT_TYPES, OWNERS,
+} from '../../lib/api_v2.js'
+import LineChart from './components/LineChart.vue'
+import Modal from './components/Modal.vue'
 
-const accounts = ref([])
-const loading = ref(true)
-
+const OWNER_COLORS = {
+  '재욱':   '#5e72e4',
+  '공주님': '#f5365c',
+  '공동':   '#2dce89',
+  '우주':   '#fb8c00',
+}
+const ownerColor = (o) => OWNER_COLORS[o] || '#8898aa'
 const typeLabel = (t) => ACCOUNT_TYPES.find(x => x.value === t)?.label || t
 
-const grouped = computed(() => {
+const accounts = ref([])
+const snapshots = ref([])
+const loading = ref(true)
+const saving = ref(false)
+
+const filterOwner = ref('all')
+
+// 합계
+const assetTotal = computed(() => accounts.value.filter(a => !a.is_liability).reduce((s, a) => s + Number(a.balance), 0))
+const liabTotal  = computed(() => accounts.value.filter(a =>  a.is_liability).reduce((s, a) => s + Number(a.balance), 0))
+const net = computed(() => assetTotal.value - liabTotal.value)
+
+const countByOwner = computed(() => {
+  const c = {}
+  for (const a of accounts.value) c[a.owner] = (c[a.owner] || 0) + 1
+  return c
+})
+
+const filteredAccounts = computed(() => {
+  if (filterOwner.value === 'all') return accounts.value
+  return accounts.value.filter(a => a.owner === filterOwner.value)
+})
+
+const displayGroups = computed(() => {
   const g = {}
-  for (const a of accounts.value) {
+  for (const a of filteredAccounts.value) {
     if (!g[a.owner]) g[a.owner] = []
     g[a.owner].push(a)
   }
-  return g
+  // 정렬: 정의된 OWNERS 순서
+  const ordered = {}
+  for (const o of OWNERS) if (g[o]) ordered[o] = g[o]
+  return ordered
 })
 
 const sumOf = (list) => list.reduce((s, a) => s + (a.is_liability ? -1 : 1) * Number(a.balance), 0)
 
-onMounted(async () => {
-  try {
-    accounts.value = await listAccounts()
-  } finally {
-    loading.value = false
+// 차트: 최근 6개월, 소유자별 자산 합계
+const chartMonths = computed(() => {
+  const now = new Date()
+  const arr = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    arr.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
   }
+  return arr
 })
+
+const chartSeries = computed(() => {
+  // ownerId 별로 month 합계 만들기
+  // snapshot row: { account_id, year_month, balance }
+  const accById = {}
+  for (const a of accounts.value) accById[a.id] = a
+
+  return OWNERS
+    .filter(o => countByOwner.value[o]) // 계좌 있는 소유자만
+    .map(o => {
+      const values = chartMonths.value.map(ym => {
+        let total = 0
+        let any = false
+        for (const a of accounts.value) {
+          if (a.owner !== o || a.is_liability) continue
+          // 해당 ym 의 스냅샷 (없으면 가장 최근 ≤ ym)
+          const candidates = snapshots.value.filter(s => s.account_id === a.id && s.year_month <= ym)
+          if (!candidates.length) continue
+          candidates.sort((x, y) => x.year_month < y.year_month ? -1 : 1)
+          total += Number(candidates[candidates.length - 1].balance)
+          any = true
+        }
+        return any ? total : null
+      })
+      return { label: o, color: ownerColor(o), values }
+    })
+})
+
+// 폼 상태
+const formOpen = ref(false)
+const form = ref(emptyForm())
+function emptyForm() {
+  return { id: null, name: '', type: 'savings', owner: '재욱', balance: 0, is_liability: false, memo: '' }
+}
+function openCreate() { form.value = emptyForm(); formOpen.value = true }
+function openEdit(a) {
+  form.value = {
+    id: a.id, name: a.name, type: a.type, owner: a.owner,
+    balance: a.balance, is_liability: a.is_liability, memo: a.memo || '',
+  }
+  formOpen.value = true
+}
+async function saveForm() {
+  saving.value = true
+  try {
+    const payload = {
+      name: form.value.name.trim(),
+      type: form.value.type,
+      owner: form.value.owner,
+      balance: Number(form.value.balance) || 0,
+      is_liability: !!form.value.is_liability,
+      memo: form.value.memo || null,
+    }
+    if (form.value.id) {
+      await updateAccount(form.value.id, payload)
+    } else {
+      const a = await createAccount(payload)
+      // 생성 시 현재 월 스냅샷 자동 기록
+      await updateBalance(a.id, payload.balance, ymNow())
+    }
+    formOpen.value = false
+    await reload()
+  } finally { saving.value = false }
+}
+
+// 잔액 수정
+const balanceOpen = ref(false)
+const balTarget = ref(null)
+const balForm = ref({ balance: 0, ym: ymNow() })
+function openBalance(a) {
+  balTarget.value = a
+  balForm.value = { balance: a.balance, ym: ymNow() }
+  balanceOpen.value = true
+}
+async function saveBalance() {
+  if (!balTarget.value) return
+  saving.value = true
+  try {
+    await updateBalance(balTarget.value.id, Number(balForm.value.balance) || 0, balForm.value.ym)
+    balanceOpen.value = false
+    await reload()
+  } finally { saving.value = false }
+}
+
+// 삭제
+const deleteOpen = ref(false)
+const delTarget = ref(null)
+function confirmDelete(a) { delTarget.value = a; deleteOpen.value = true }
+async function doDelete() {
+  if (!delTarget.value) return
+  saving.value = true
+  try {
+    await deleteAccount(delTarget.value.id)
+    deleteOpen.value = false
+    await reload()
+  } finally { saving.value = false }
+}
+
+async function reload() {
+  loading.value = true
+  try {
+    const accs = await listAccounts()
+    accounts.value = accs
+    if (chartMonths.value.length) {
+      snapshots.value = await listSnapshotsRange(chartMonths.value[0], chartMonths.value[chartMonths.value.length - 1])
+    }
+  } finally { loading.value = false }
+}
+
+onMounted(reload)
 </script>
 
 <style scoped>
 .page-title { display: flex; align-items: center; gap: 0.5rem; }
+.section { border: none; border-radius: 12px; padding: 1.1rem; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.section-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+.section-title { font-size: 1rem; font-weight: 700; color: #32325d; }
+.section-sub { font-size: 0.8rem; }
+
+.stat {
+  border: none; border-radius: 12px; padding: 1rem;
+  background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  border-left: 4px solid #5e72e4;
+}
+.stat.asset { border-left-color: #2dce89; }
+.stat.liab  { border-left-color: #f5365c; }
+.stat.net   { border-left-color: #5e72e4; }
+.stat-label { font-size: 0.78rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }
+.stat-value { font-size: 1.4rem; font-weight: 700; color: #32325d; }
+
+.owner-tabs {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  background: #fff; border-radius: 999px; padding: 0.3rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.owner-tab {
+  border: none; background: transparent;
+  padding: 0.4rem 0.9rem; border-radius: 999px;
+  font-size: 0.85rem; color: #525f7f; font-weight: 600;
+  cursor: pointer; display: flex; align-items: center; gap: 0.3rem;
+}
+.owner-tab:hover { background: #f0f3f7; }
+.owner-tab.active { background: #5e72e4; color: #fff; }
+.owner-tab .cnt { font-size: 0.7rem; opacity: 0.8; padding: 0 0.4rem; background: rgba(255,255,255,0.25); border-radius: 999px; }
+.owner-tab:not(.active) .cnt { background: #e9ecef; }
+
+.group-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0.75rem 0 0.5rem; padding: 0 0.25rem;
+}
+.owner-badge {
+  color: #fff; padding: 0.15rem 0.6rem; border-radius: 999px;
+  font-size: 0.78rem; font-weight: 700;
+}
+
+.account-card {
+  border: none; border-radius: 12px; padding: 0.9rem 1rem;
+  background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  height: 100%;
+  border-left: 3px solid #5e72e4;
+}
+.account-card.liability { border-left-color: #f5365c; background: #fff7f8; }
+.ac-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+.ac-actions { display: flex; gap: 0.15rem; }
+.ac-name { font-weight: 600; color: #32325d; }
+.ac-balance { font-size: 1.25rem; font-weight: 700; color: #32325d; margin-top: 0.2rem; }
+.ac-memo { margin-top: 0.25rem; }
+
+.icon-btn {
+  width: 28px; height: 28px; border-radius: 6px;
+  background: transparent; border: none; color: #8898aa; cursor: pointer;
+}
+.icon-btn:hover { background: #f0f3f7; color: #5e72e4; }
+.icon-btn.danger:hover { color: #f5365c; }
 </style>

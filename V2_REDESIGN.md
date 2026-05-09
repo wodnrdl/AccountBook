@@ -94,12 +94,18 @@
 - [x] `npm run build` 통과
 - [ ] Phase 3 커밋 ⬅ **다음**
 
-### Phase 4 — 자산 관리 (`/v2/assets`) ⬅ **여기 진행 예정**
-- [ ] 계좌 카드 그리드 (소유자별 그룹)
-- [ ] 잔액 입력/수정 → balance_snapshots 자동 기록
-- [ ] 월별 추이 라인차트 (계좌별/소유자별 토글)
+### Phase 4 — 자산 관리 (`/v2/assets`) ✅
+- [x] 자산/부채/순자산 요약 카드
+- [x] 소유자 필터 탭 (전체 + 4명)
+- [x] 월별 추이 라인차트 (LineChart.vue, SVG, 호버 툴팁/범례 포함)
+- [x] 계좌 카드 그리드 (소유자별 그룹)
+- [x] 계좌 추가/편집 모달 (Modal.vue 신규 컴포넌트)
+- [x] 잔액 수정 → balance_snapshots 자동 upsert (적용 월 지정 가능)
+- [x] 삭제 (cascade 로 스냅샷도 같이 삭제됨)
+- [x] `npm run build` 통과
+- [ ] Phase 4 커밋 ⬅ **다음**
 
-### Phase 5 — 고정지출 (`/v2/recurring`)
+### Phase 5 — 고정지출 (`/v2/recurring`) ⬅ **여기 진행 예정**
 - [ ] 매월 항목 표 (kind 별 그룹)
 - [ ] 종료월 표시 (예: 금적립 2026-07)
 - [ ] CRUD
