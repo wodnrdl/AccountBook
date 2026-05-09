@@ -23,6 +23,56 @@
       </div>
     </div>
 
+    <!-- 생활비 봉투 설정 -->
+    <div class="card section mb-3 living">
+      <div class="section-head">
+        <div class="d-flex align-items-center gap-2">
+          <i class="fas fa-shopping-basket text-info"></i>
+          <span class="section-title">생활비 봉투</span>
+        </div>
+        <button v-if="!editLiving" class="btn btn-sm btn-outline-primary" @click="startEditLiving">편집</button>
+      </div>
+      <div v-if="!editLiving" class="row g-2 align-items-center">
+        <div class="col-12 col-md-4">
+          <div class="lb-label">매월 충전액</div>
+          <div class="lb-value">{{ won(living?.monthly_amount || 0) }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="lb-label">시작월</div>
+          <div class="lb-value">{{ living?.start_ym || '-' }}</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="lb-label">상태</div>
+          <div class="lb-value">{{ living?.active ? '활성' : '비활성' }}</div>
+        </div>
+        <div class="col-12 small text-muted">
+          매월 1일에 기본 결제 계좌(자산 관리에서 ⭐ 표시) 로 자동 입금됩니다.
+        </div>
+      </div>
+      <div v-else class="row g-2 align-items-end">
+        <div class="col-12 col-md-4">
+          <label class="form-label small">매월 충전액 (원)</label>
+          <input v-model.number="livingForm.monthly_amount" type="number" class="form-control" />
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small">시작월</label>
+          <input v-model="livingForm.start_ym" class="form-control" placeholder="2026-05" />
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="form-check mt-3">
+            <input id="lbActive" v-model="livingForm.active" type="checkbox" class="form-check-input" />
+            <label for="lbActive" class="form-check-label small">활성</label>
+          </div>
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 mt-2">
+          <button class="btn btn-sm btn-light" @click="editLiving = false">취소</button>
+          <button class="btn btn-sm btn-primary" :disabled="savingLiving" @click="saveLiving">
+            <i v-if="savingLiving" class="fas fa-spinner fa-spin"></i> 저장
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 요약 -->
     <div class="row g-3 mb-3">
       <div class="col-6 col-md-4">
@@ -163,6 +213,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   listRecurring, createRecurring, updateRecurring, deleteRecurring,
   listAccounts,
+  getLivingBudget, updateLivingBudget,
   won, ymNow,
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
@@ -178,6 +229,31 @@ const accounts = ref([])
 const showInactive = ref(false)
 const loading = ref(true)
 const saving = ref(false)
+
+// 생활비 봉투
+const living = ref(null)
+const editLiving = ref(false)
+const livingForm = ref({ monthly_amount: 1000000, start_ym: '2026-05', active: true })
+const savingLiving = ref(false)
+function startEditLiving() {
+  livingForm.value = {
+    monthly_amount: living.value?.monthly_amount ?? 1000000,
+    start_ym: living.value?.start_ym ?? ym.value,
+    active: living.value?.active ?? true,
+  }
+  editLiving.value = true
+}
+async function saveLiving() {
+  savingLiving.value = true
+  try {
+    living.value = await updateLivingBudget({
+      monthly_amount: Number(livingForm.value.monthly_amount) || 0,
+      start_ym: livingForm.value.start_ym,
+      active: !!livingForm.value.active,
+    })
+    editLiving.value = false
+  } finally { savingLiving.value = false }
+}
 
 const accountName = (id) => {
   const a = accounts.value.find(x => x.id === id)
@@ -282,12 +358,14 @@ async function doDelete() {
 async function reload() {
   loading.value = true
   try {
-    const [recs, accs] = await Promise.all([
+    const [recs, accs, lb] = await Promise.all([
       listRecurring({ ym: ym.value, activeOnly: !showInactive.value }),
       listAccounts(),
+      getLivingBudget(),
     ])
     items.value = recs
     accounts.value = accs
+    living.value = lb
   } finally { loading.value = false }
 }
 
@@ -352,6 +430,9 @@ onMounted(reload)
 }
 .icon-btn:hover { background: #f0f3f7; color: #5e72e4; }
 .icon-btn.danger:hover { color: #f5365c; }
+
+.living .lb-label { font-size: 0.72rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }
+.living .lb-value { font-size: 1.05rem; font-weight: 700; color: #32325d; }
 
 @media (max-width: 575px) {
   .rec-list li { flex-wrap: wrap; }

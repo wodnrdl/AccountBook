@@ -141,6 +141,22 @@
 - [ ] 사용자가 Supabase SQL Editor 에서 마이그레이션 실행
 - [ ] Phase 6.5 커밋 ⬅ **다음**
 
+### Phase 6.6 — 생활비 봉투 시스템 ✅ (사용자 SQL 실행 필요)
+- [x] `supabase/migrations/2026_05_10_living_budget.sql`
+  - `living_budget` 테이블 (월 충전액 / 시작월 / 활성)
+  - `increment_account_balance` RPC (거래↔잔액 자동 동기화)
+  - 시드의 "생활비 100만 expense" 제거
+- [x] `api_v2.js`:
+  - `createTransaction/updateTransaction/deleteTransaction` → 자동으로 `account.balance` 동기화
+  - `applyLivingBudgetCharges`: 누락된 월에 자동으로 `transactions(income)` INSERT (멱등)
+  - `fetchLivingBudgetStatus(ym)`: 충전/사용/잔액 계산
+- [x] `Dashboard.vue`: 진입 시 자동 충전 호출 + 생활비 봉투 카드 (충전/사용/잔액 + 사용률 바)
+- [x] `Recurring.vue`: 상단에 "생활비 봉투" 설정 카드 (월 충전액/시작월/활성 편집)
+- [x] `seed_v2.sql`: 생활비 expense 항목 제거 (향후 재실행 대비)
+- [x] `npm run build` 통과
+- [ ] 사용자가 Supabase SQL Editor 에서 마이그레이션 실행
+- [ ] Phase 6.6 커밋 ⬅ **다음**
+
 ### Phase 7 — 마무리 ⬅ **여기 진행 예정**
 - [ ] `/` 기본 진입을 `/v2`로 변경
 - [ ] README/CLAUDE.md 업데이트

@@ -63,6 +63,44 @@
       </div>
     </div>
 
+    <!-- 생활비 봉투 -->
+    <div v-if="living" class="card section mb-3 living">
+      <div class="section-head">
+        <div>
+          <div class="section-title"><i class="fas fa-shopping-basket text-info"></i> 생활비 봉투</div>
+          <div v-if="living.target" class="section-sub text-muted">
+            {{ living.target.owner }} · {{ living.target.name }}
+          </div>
+        </div>
+        <router-link to="/v2/recurring" class="btn btn-sm btn-outline-primary">설정</router-link>
+      </div>
+
+      <div v-if="livingNotice" class="alert alert-warning small p-2 mb-2">
+        <i class="fas fa-info-circle"></i> {{ livingNotice }}
+      </div>
+
+      <div v-if="living.target" class="row g-2 living-stats">
+        <div class="col-4">
+          <div class="lb-label">이번달 충전</div>
+          <div class="lb-value text-success">+{{ won(living.charged) }}</div>
+        </div>
+        <div class="col-4">
+          <div class="lb-label">이번달 사용</div>
+          <div class="lb-value text-danger">-{{ won(living.used) }}</div>
+        </div>
+        <div class="col-4">
+          <div class="lb-label">현재 잔액</div>
+          <div class="lb-value">{{ won(living.balance) }}</div>
+        </div>
+      </div>
+      <div v-if="living.target && living.charged > 0" class="lb-bar mt-2">
+        <div class="lb-bar-fill" :style="{ width: barPct + '%' }"></div>
+      </div>
+      <div v-if="living.target && living.charged > 0" class="lb-bar-label small text-muted mt-1">
+        이번달 충전 대비 {{ barPct }}% 사용
+      </div>
+    </div>
+
     <!-- 자산 / 부채 -->
     <div class="row g-3 mb-3">
       <!-- 자산 -->
@@ -157,6 +195,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   fetchDashboard, listRecurring, won, wonShort, ymNow,
+  applyLivingBudgetCharges, fetchLivingBudgetStatus,
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
 import Donut from './components/Donut.vue'
@@ -176,6 +215,8 @@ const loading = ref(true)
 const error = ref('')
 const d = ref(emptyDashboard())
 const recurring = ref([])
+const living = ref(null)        // 생활비 봉투 상태
+const livingNotice = ref('')    // 안내 메시지 (기본계좌 미설정 등)
 
 function emptyDashboard() {
   return {
@@ -203,6 +244,11 @@ const ownerSegments = computed(() => {
 
 const liabilityAccounts = computed(() => d.value.accounts.filter(a => a.is_liability))
 
+const barPct = computed(() => {
+  if (!living.value || !living.value.charged) return 0
+  return Math.min(100, Math.round(living.value.used / living.value.charged * 100))
+})
+
 const recurringGroups = computed(() => {
   return RECURRING_KINDS.map(k => {
     const items = recurring.value.filter(r => r.kind === k.value)
@@ -219,12 +265,25 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [summary, recs] = await Promise.all([
+    // 1) 누락된 매월 생활비 충전 자동 적용
+    const charge = await applyLivingBudgetCharges()
+    if (charge.reason === 'no_default_account') {
+      livingNotice.value = '기본 결제 계좌가 지정되지 않아 자동 충전되지 않았습니다. 자산 관리에서 설정해 주세요.'
+    } else if (charge.reason === 'inactive') {
+      livingNotice.value = '생활비 봉투가 비활성 상태입니다.'
+    } else {
+      livingNotice.value = ''
+    }
+
+    // 2) 요약/고정/봉투 동시 조회
+    const [summary, recs, livingStatus] = await Promise.all([
       fetchDashboard(ym.value),
       listRecurring({ ym: ym.value, activeOnly: true }),
+      fetchLivingBudgetStatus(ym.value),
     ])
     d.value = summary
     recurring.value = recs
+    living.value = livingStatus
   } catch (e) {
     error.value = e.message || String(e)
   } finally {
@@ -334,6 +393,12 @@ onMounted(load)
 }
 .rec-list li:last-child { border-bottom: none; }
 .rec-name { color: #32325d; }
+
+/* 생활비 봉투 */
+.living .lb-label { font-size: 0.72rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }
+.living .lb-value { font-size: 1.15rem; font-weight: 700; color: #32325d; }
+.lb-bar { height: 8px; background: #f0f3f7; border-radius: 999px; overflow: hidden; }
+.lb-bar-fill { height: 100%; background: linear-gradient(90deg, #2dce89 0, #fb6340 70%, #f5365c 100%); border-radius: 999px; transition: width 0.3s; }
 
 /* 스켈레톤 */
 .skel {

@@ -167,21 +167,133 @@ export async function listTransactions({ ym = null, owner = null, kind = null } 
   return data || []
 }
 
+// 거래 → 계좌잔액 자동 동기화 (income +, expense -)
+async function adjustAccountBalance(accountId, delta) {
+  if (!accountId || !delta) return
+  const { error } = await supabase.rpc('increment_account_balance', { p_account_id: accountId, p_delta: delta })
+  if (error) throw error
+}
+function txDelta(t) {
+  return (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
+}
+
 export async function createTransaction(payload) {
   const { data, error } = await supabase.from('transactions').insert(payload).select().single()
   if (error) throw error
+  if (data.account_id) await adjustAccountBalance(data.account_id, txDelta(data))
   return data
 }
 
 export async function updateTransaction(id, fields) {
+  const { data: oldRow } = await supabase.from('transactions').select('*').eq('id', id).single()
   const { data, error } = await supabase.from('transactions').update(fields).eq('id', id).select().single()
   if (error) throw error
+  // 이전 영향 되돌리기
+  if (oldRow?.account_id) await adjustAccountBalance(oldRow.account_id, -txDelta(oldRow))
+  // 새 영향 적용
+  if (data.account_id) await adjustAccountBalance(data.account_id, txDelta(data))
   return data
 }
 
 export async function deleteTransaction(id) {
+  const { data: oldRow } = await supabase.from('transactions').select('*').eq('id', id).single()
   const { error } = await supabase.from('transactions').delete().eq('id', id)
   if (error) throw error
+  if (oldRow?.account_id) await adjustAccountBalance(oldRow.account_id, -txDelta(oldRow))
+}
+
+// ===== living_budget (생활비 봉투) =====
+export const LIVING_CHARGE_CATEGORY = '생활비 충전'
+
+export async function getLivingBudget() {
+  const { data, error } = await supabase.from('living_budget').select('*').limit(1).maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function updateLivingBudget(fields) {
+  const cur = await getLivingBudget()
+  if (!cur) {
+    const { data, error } = await supabase.from('living_budget').insert(fields).select().single()
+    if (error) throw error
+    return data
+  }
+  const { data, error } = await supabase.from('living_budget').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', cur.id).select().single()
+  if (error) throw error
+  return data
+}
+
+// 누락된 매월 충전을 자동 등록 (멱등)
+export async function applyLivingBudgetCharges() {
+  const config = await getLivingBudget()
+  if (!config || !config.active) return { applied: 0, reason: 'inactive' }
+
+  const accs = await listAccounts()
+  const target = accs.find(a => a.tx_default)
+  if (!target) return { applied: 0, reason: 'no_default_account' }
+
+  const now = new Date()
+  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+  // 시작월 ~ 현재월 사이 월 목록 만들기
+  const months = []
+  let [y, m] = config.start_ym.split('-').map(Number)
+  while (true) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`
+    months.push(ym)
+    if (ym === curYm) break
+    m++; if (m > 12) { m = 1; y++ }
+    if (months.length > 240) break // safety
+  }
+
+  // 이미 충전된 월 조회
+  const { data: existing } = await supabase
+    .from('transactions').select('date')
+    .eq('category', LIVING_CHARGE_CATEGORY)
+    .eq('account_id', target.id)
+    .gte('date', `${config.start_ym}-01`)
+  const done = new Set((existing || []).map(t => (t.date || '').slice(0, 7)))
+
+  // 누락된 월에 대해 충전 (createTransaction 으로 잔액도 자동 동기화)
+  let applied = 0
+  for (const ym of months) {
+    if (done.has(ym)) continue
+    await createTransaction({
+      date: `${ym}-01`,
+      kind: 'income',
+      amount: config.monthly_amount,
+      category: LIVING_CHARGE_CATEGORY,
+      owner: target.owner,
+      account_id: target.id,
+      memo: '자동 생활비 충전',
+    })
+    applied++
+  }
+  return { applied, target }
+}
+
+// 이번 달 생활비 봉투 상태 (대시보드용)
+export async function fetchLivingBudgetStatus(ym = ymNow()) {
+  const config = await getLivingBudget()
+  if (!config) return null
+  const accs = await listAccounts()
+  const target = accs.find(a => a.tx_default)
+  if (!target) return { config, target: null, charged: 0, used: 0, balance: 0 }
+
+  const { data: txs } = await supabase
+    .from('transactions').select('kind, amount, category')
+    .eq('account_id', target.id)
+    .gte('date', `${ym}-01`).lte('date', `${ym}-31`)
+
+  const list = txs || []
+  const charged = list
+    .filter(t => t.kind === 'income' && t.category === LIVING_CHARGE_CATEGORY)
+    .reduce((s, t) => s + Number(t.amount), 0)
+  const used = list
+    .filter(t => t.kind === 'expense')
+    .reduce((s, t) => s + Number(t.amount), 0)
+
+  return { config, target, charged, used, balance: Number(target.balance) }
 }
 
 // ===== 대시보드 요약 =====

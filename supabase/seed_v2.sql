@@ -65,10 +65,9 @@ INSERT INTO recurring_items (name, kind, amount, owner, start_ym, sort_order, me
 INSERT INTO recurring_items (name, kind, amount, owner, start_ym, sort_order, memo) VALUES
   ('대출 상환', 'loan_payment', 200000, '공동', '2026-05', 40, NULL);
 
--- 공동 매월 지출
+-- 공동 매월 지출 (생활비는 별도 봉투 시스템으로 관리 — living_budget 테이블)
 INSERT INTO recurring_items (name, kind, amount, owner, start_ym, sort_order, memo) VALUES
   ('임대료',  'expense', 308500,  '공동', '2026-05', 50, NULL),
-  ('생활비',  'expense', 1000000, '공동', '2026-05', 51, NULL),
   ('관리비',  'expense', 175000,  '공동', '2026-05', 52, '15~20만 평균'),
   ('금 적립','transfer', 100000,  '공동', '2026-05', 60, '2026-07 까지');
 
