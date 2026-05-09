@@ -20,19 +20,23 @@
     </div>
 
     <!-- 요약 -->
-    <div class="row g-3 mb-3">
-      <div class="col-4">
-        <div class="card stat income"><div class="stat-label">수입</div>
+    <div class="row g-2 mb-3">
+      <div class="col-6 col-md-3">
+        <div class="card stat carry"><div class="stat-label">이월</div>
+          <div class="stat-value" :class="totals.carryOver < 0 ? 'text-danger' : ''">{{ won(totals.carryOver) }}</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="card stat income"><div class="stat-label">이번달 수입</div>
           <div class="stat-value text-success">+{{ won(totals.income) }}</div></div>
       </div>
-      <div class="col-4">
-        <div class="card stat expense"><div class="stat-label">지출</div>
+      <div class="col-6 col-md-3">
+        <div class="card stat expense"><div class="stat-label">이번달 지출</div>
           <div class="stat-value text-danger">-{{ won(totals.expense) }}</div></div>
       </div>
-      <div class="col-4">
-        <div class="card stat net" :class="{ neg: totals.net < 0 }">
-          <div class="stat-label">차액</div>
-          <div class="stat-value">{{ totals.net >= 0 ? '+' : '-' }}{{ won(Math.abs(totals.net)) }}</div></div>
+      <div class="col-6 col-md-3">
+        <div class="card stat net" :class="{ neg: totals.remaining < 0 }">
+          <div class="stat-label">잔여 (이월포함)</div>
+          <div class="stat-value">{{ won(totals.remaining) }}</div></div>
       </div>
     </div>
 
@@ -191,6 +195,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
   listAccounts, listPaymentAccounts,
+  fetchLivingBudgetStatus,
   won, OWNERS,
 } from '../../lib/api_v2.js'
 import Modal from './components/Modal.vue'
@@ -206,6 +211,7 @@ const ym = computed(() => `${year.value}-${String(month.value).padStart(2, '0')}
 const items = ref([])
 const accounts = ref([])         // 모든 계좌 (목록의 계좌명 표시용)
 const paymentAccounts = ref([])  // tx_enabled=true 만 (모달 셀렉트용)
+const livingStatus = ref(null)   // 생활비 봉투 carry-over 정보
 const loading = ref(true)
 const saving = ref(false)
 
@@ -230,7 +236,9 @@ const filtered = computed(() => {
 const totals = computed(() => {
   const income  = filtered.value.filter(t => t.kind === 'income').reduce((s, t) => s + Number(t.amount), 0)
   const expense = filtered.value.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount), 0)
-  return { income, expense, net: income - expense }
+  const carryOver = livingStatus.value?.carryOver || 0
+  // 잔여 = 이월 + 이번달 수입 - 이번달 지출 (v1 의 이월 누적 계산과 동일)
+  return { income, expense, carryOver, remaining: carryOver + income - expense }
 })
 
 const availableCategories = computed(() => {
@@ -347,15 +355,18 @@ async function reload() {
   loading.value = true
   // 이전 달 거래 잔상 제거
   items.value = []
+  livingStatus.value = null
   try {
-    const [txs, accs, pays] = await Promise.all([
+    const [txs, accs, pays, lbs] = await Promise.all([
       listTransactions({ ym: ym.value }),
       listAccounts(),
       listPaymentAccounts(),
+      fetchLivingBudgetStatus(ym.value),
     ])
     items.value = txs
     accounts.value = accs
     paymentAccounts.value = pays
+    livingStatus.value = lbs
   } finally { loading.value = false }
 }
 
@@ -384,6 +395,7 @@ onMounted(reload)
   border-left: 4px solid #5e72e4;
   height: 100%;
 }
+.stat.carry   { border-left-color: #8898aa; }
 .stat.income  { border-left-color: #2dce89; }
 .stat.expense { border-left-color: #f5365c; }
 .stat.net     { border-left-color: #11cdef; }
