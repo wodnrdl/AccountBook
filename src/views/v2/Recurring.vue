@@ -391,6 +391,8 @@ onMounted(reload)
   border: none; border-radius: 12px; padding: 1rem;
   background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   border-left: 4px solid #5e72e4;
+  height: 100%;
+  display: flex; flex-direction: column; justify-content: center;
 }
 .stat.income  { border-left-color: #2dce89; }
 .stat.out     { border-left-color: #fb6340; }
