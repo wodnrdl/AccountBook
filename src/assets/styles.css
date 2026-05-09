@@ -197,7 +197,24 @@ body {
   z-index: 1050;
   top: 10px;
   left: 10px;
-  color: #fff;
+  width: 40px;
+  height: 40px;
+  background: #fff;
+  color: #5e72e4;
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  padding: 0;
+}
+.sidebar-toggle:hover,
+.sidebar-toggle:focus {
+  background: #f8f9fe;
+  color: #5e72e4;
+  box-shadow: 0 4px 14px rgba(94, 114, 228, 0.25);
 }
 
 /* Sidebar overlay */
@@ -263,6 +280,11 @@ body {
 .skeleton-line.short { width: 60%; }
 .skeleton-line.tall { height: 1.5rem; }
 
+/* v2 페이지 공통 패딩 */
+.v2-page {
+  padding: 1rem 1.25rem 2rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .sidebar {
@@ -277,5 +299,11 @@ body {
 
   .main-content {
     margin-left: 0;
+  }
+
+  /* 햄버거 버튼 자리 확보 */
+  .v2-page {
+    padding: 0.75rem 0.9rem 2rem;
+    padding-top: 60px;
   }
 }
