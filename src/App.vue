@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isLoginPage">
+  <div v-if="isLoginPage || isV2">
     <router-view />
   </div>
   <div v-else>
@@ -52,6 +52,7 @@ const route = useRoute()
 const router = useRouter()
 const sidebarOpen = ref(false)
 const isLoginPage = computed(() => route.path === '/login')
+const isV2 = computed(() => route.path.startsWith('/v2'))
 
 async function logout() {
   await supabase.auth.signOut()

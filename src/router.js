@@ -4,11 +4,28 @@ import HomeView from './views/HomeView.vue'
 import RegistrationView from './views/RegistrationView.vue'
 import LoginView from './views/LoginView.vue'
 
+import V2Layout from './views/v2/V2Layout.vue'
+import V2Dashboard from './views/v2/Dashboard.vue'
+import V2Assets from './views/v2/Assets.vue'
+import V2Recurring from './views/v2/Recurring.vue'
+import V2Transactions from './views/v2/Transactions.vue'
+
 const routes = [
   { path: '/', redirect: '/home' },
   { path: '/login', component: LoginView, meta: { public: true } },
   { path: '/home', component: HomeView },
   { path: '/registration', component: RegistrationView },
+  {
+    path: '/v2',
+    component: V2Layout,
+    meta: { v2: true },
+    children: [
+      { path: '',             component: V2Dashboard },
+      { path: 'assets',       component: V2Assets },
+      { path: 'recurring',    component: V2Recurring },
+      { path: 'transactions', component: V2Transactions },
+    ],
+  },
 ]
 
 const router = createRouter({

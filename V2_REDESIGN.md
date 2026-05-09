@@ -68,19 +68,23 @@
 
 ## 진행 단계 (체크리스트)
 
-### Phase 1 — 기반 (DB + 시드) ⬅ **여기 작업 중**
+### Phase 1 — 기반 (DB + 시드) ✅
 - [x] V2_REDESIGN.md 문서 작성
 - [x] `supabase/schema_v2.sql` 작성
 - [x] `supabase/seed_v2.sql` 작성
-- [ ] 사용자가 Supabase SQL Editor 에서 schema_v2.sql + seed_v2.sql 실행 (수동)
-- [ ] Phase 1 커밋
+- [x] 사용자가 Supabase SQL Editor 에서 schema_v2.sql + seed_v2.sql 실행 (수동)
+- [x] Phase 1 커밋 (34d776a)
 
-### Phase 2 — 라우팅 + 공통 레이아웃
-- [ ] router.js 에 `/v2/*` 라우트 추가 (기존 라우트는 보존)
-- [ ] `src/views/v2/V2Layout.vue` (사이드바/헤더 — v2 전용 또는 기존 App.vue 와 공유)
-- [ ] `src/lib/api_v2.js` — 신규 테이블 CRUD 헬퍼
+### Phase 2 — 라우팅 + 공통 레이아웃 ✅
+- [x] `src/lib/api_v2.js` — accounts/snapshots/recurring/transactions CRUD + dashboard 요약
+- [x] `src/views/v2/V2Layout.vue` — v2 전용 사이드바 (대시보드/자산/고정지출/거래 + 기존화면 복귀 링크)
+- [x] `src/views/v2/Dashboard.vue` / `Assets.vue` / `Recurring.vue` / `Transactions.vue` — placeholder
+- [x] `src/router.js` — `/v2/*` nested routes (기존 `/home`, `/registration` 보존)
+- [x] `src/App.vue` — `/v2/*` 진입 시 기존 사이드바 우회 (V2Layout 단독 렌더)
+- [x] `npm run build` 통과
+- [ ] Phase 2 커밋 ⬅ **다음 작업**
 
-### Phase 3 — 대시보드 (`/v2`)
+### Phase 3 — 대시보드 (`/v2`) ⬅ **여기 진행 예정**
 - [ ] 이번 달 카드: 수입 / 고정지출 / 가용잉여
 - [ ] 자산 총합 + 소유자별 자산 도넛
 - [ ] 부채 (대출 잔액)
