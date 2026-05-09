@@ -80,24 +80,28 @@
       </div>
 
       <div v-if="living.target" class="row g-2 living-stats">
-        <div class="col-4">
+        <div class="col-6 col-md-3">
+          <div class="lb-label">이월 (전월말)</div>
+          <div class="lb-value" :class="living.carryOver < 0 ? 'text-danger' : ''">{{ won(living.carryOver) }}</div>
+        </div>
+        <div class="col-6 col-md-3">
           <div class="lb-label">이번달 충전</div>
           <div class="lb-value text-success">+{{ won(living.charged) }}</div>
         </div>
-        <div class="col-4">
+        <div class="col-6 col-md-3">
           <div class="lb-label">이번달 사용</div>
           <div class="lb-value text-danger">-{{ won(living.used) }}</div>
         </div>
-        <div class="col-4">
-          <div class="lb-label">현재 잔액</div>
-          <div class="lb-value">{{ won(living.balance) }}</div>
+        <div class="col-6 col-md-3">
+          <div class="lb-label">잔여</div>
+          <div class="lb-value" :class="living.remaining < 0 ? 'text-danger' : ''">{{ won(living.remaining) }}</div>
         </div>
       </div>
-      <div v-if="living.target && living.charged > 0" class="lb-bar mt-2">
+      <div v-if="living.target && (living.carryOver + living.charged) > 0" class="lb-bar mt-2">
         <div class="lb-bar-fill" :style="{ width: barPct + '%' }"></div>
       </div>
-      <div v-if="living.target && living.charged > 0" class="lb-bar-label small text-muted mt-1">
-        이번달 충전 대비 {{ barPct }}% 사용
+      <div v-if="living.target && (living.carryOver + living.charged) > 0" class="lb-bar-label small text-muted mt-1">
+        이번달 가용({{ won(living.carryOver + living.charged) }}) 대비 {{ barPct }}% 사용
       </div>
     </div>
 
@@ -245,8 +249,10 @@ const ownerSegments = computed(() => {
 const liabilityAccounts = computed(() => d.value.accounts.filter(a => a.is_liability))
 
 const barPct = computed(() => {
-  if (!living.value || !living.value.charged) return 0
-  return Math.min(100, Math.round(living.value.used / living.value.charged * 100))
+  if (!living.value) return 0
+  const avail = (living.value.carryOver || 0) + (living.value.charged || 0)
+  if (avail <= 0) return 0
+  return Math.min(100, Math.round((living.value.used || 0) / avail * 100))
 })
 
 const recurringGroups = computed(() => {

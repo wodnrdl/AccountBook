@@ -36,6 +36,23 @@ export const ymNow = () => {
 }
 export const cmpYm = (a, b) => a < b ? -1 : a > b ? 1 : 0
 
+// 'YYYY-MM' → { first: 'YYYY-MM-01', last: 'YYYY-MM-DD(말일)' }
+export function ymRange(ym) {
+  const [y, m] = ym.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()  // 해당 월 말일
+  return {
+    first: `${ym}-01`,
+    last:  `${ym}-${String(lastDay).padStart(2, '0')}`,
+  }
+}
+
+// ym 의 직전 달
+export function prevYm(ym) {
+  let [y, m] = ym.split('-').map(Number)
+  m--; if (m < 1) { m = 12; y-- }
+  return `${y}-${String(m).padStart(2, '0')}`
+}
+
 // ===== accounts =====
 export async function listAccounts() {
   const { data, error } = await supabase
@@ -159,7 +176,8 @@ export async function deleteRecurring(id) {
 export async function listTransactions({ ym = null, owner = null, kind = null } = {}) {
   let q = supabase.from('transactions').select('*').order('date', { ascending: false }).order('id', { ascending: false })
   if (ym) {
-    q = q.gte('date', `${ym}-01`).lte('date', `${ym}-31`)
+    const { first, last } = ymRange(ym)
+    q = q.gte('date', first).lte('date', last)
   }
   if (owner) q = q.eq('owner', owner)
   if (kind)  q = q.eq('kind', kind)
@@ -273,28 +291,55 @@ export async function applyLivingBudgetCharges() {
   return { applied, target }
 }
 
-// 이번 달 생활비 봉투 상태 (대시보드용)
+// 이번 달 생활비 봉투 상태 (이월 carry-over 반영)
+// 반환: { config, target, carryOver(전월말 잔액), charged, used, remaining(=carry+charged-used), balanceNow(현재 실제 잔액) }
 export async function fetchLivingBudgetStatus(ym = ymNow()) {
   const config = await getLivingBudget()
   if (!config) return null
   const accs = await listAccounts()
   const target = accs.find(a => a.tx_default)
-  if (!target) return { config, target: null, charged: 0, used: 0, balance: 0 }
+  if (!target) return { config, target: null, carryOver: 0, charged: 0, used: 0, remaining: 0, balanceNow: 0 }
 
+  const { last: lastOfYm } = ymRange(ym)
+
+  // start_ym 시점 ~ ym 말일까지 모든 거래
   const { data: txs } = await supabase
-    .from('transactions').select('kind, amount, category')
+    .from('transactions').select('kind, amount, category, date')
     .eq('account_id', target.id)
-    .gte('date', `${ym}-01`).lte('date', `${ym}-31`)
+    .gte('date', `${config.start_ym}-01`)
+    .lte('date', lastOfYm)
 
-  const list = txs || []
-  const charged = list
+  const all = txs || []
+
+  // 이번달 / 이전달 분리
+  const thisYmPrefix = ym + '-'
+  const thisMonth = []
+  const prevMonths = []
+  for (const t of all) {
+    if ((t.date || '').startsWith(thisYmPrefix)) thisMonth.push(t)
+    else prevMonths.push(t)
+  }
+
+  const sumKind = (rows, k) => rows.filter(t => t.kind === k).reduce((s, t) => s + Number(t.amount), 0)
+
+  // 이전 달까지 누적 (이월)
+  const carryOver = sumKind(prevMonths, 'income') - sumKind(prevMonths, 'expense')
+
+  // 이번 달
+  const charged = thisMonth
     .filter(t => t.kind === 'income' && t.category === LIVING_CHARGE_CATEGORY)
     .reduce((s, t) => s + Number(t.amount), 0)
-  const used = list
-    .filter(t => t.kind === 'expense')
-    .reduce((s, t) => s + Number(t.amount), 0)
+  const used = sumKind(thisMonth, 'expense')
 
-  return { config, target, charged, used, balance: Number(target.balance) }
+  return {
+    config,
+    target,
+    carryOver,
+    charged,
+    used,
+    remaining: carryOver + charged - used,
+    balanceNow: Number(target.balance),
+  }
 }
 
 // ===== 대시보드 요약 =====
