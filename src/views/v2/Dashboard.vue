@@ -75,21 +75,10 @@
         <router-link to="/v2/recurring" class="btn btn-sm btn-outline-primary">설정</router-link>
       </div>
 
-      <div v-if="livingNotice" class="alert alert-warning small p-2 mb-2 d-flex align-items-center gap-2">
+      <div v-if="!living.target && !loading" class="alert alert-info small p-2 mb-2 d-flex align-items-center gap-2">
         <i class="fas fa-info-circle"></i>
-        <span class="me-auto">{{ livingNotice }}</span>
-        <button class="btn btn-sm btn-warning" :disabled="charging" @click="manualCharge">
-          <i v-if="charging" class="fas fa-spinner fa-spin"></i>
-          지금 충전 다시 시도
-        </button>
-      </div>
-      <div v-else-if="living.target && living.charged === 0 && !loading" class="alert alert-info small p-2 mb-2 d-flex align-items-center gap-2">
-        <i class="fas fa-info-circle"></i>
-        <span class="me-auto">이번 달 자동 충전 기록이 없습니다.</span>
-        <button class="btn btn-sm btn-primary" :disabled="charging" @click="manualCharge">
-          <i v-if="charging" class="fas fa-spinner fa-spin"></i>
-          지금 충전
-        </button>
+        <span class="me-auto">기본 결제 계좌(⭐) 가 지정되지 않았습니다.</span>
+        <router-link to="/v2/assets" class="btn btn-sm btn-primary">자산 관리</router-link>
       </div>
 
       <div v-if="living.target" class="row g-2 living-stats">
@@ -98,8 +87,8 @@
           <div class="lb-value" :class="living.carryOver < 0 ? 'text-danger' : ''">{{ won(living.carryOver) }}</div>
         </div>
         <div class="col-6 col-md-3">
-          <div class="lb-label">이번달 충전</div>
-          <div class="lb-value text-success">+{{ won(living.charged) }}</div>
+          <div class="lb-label">이번달 입금</div>
+          <div class="lb-value text-success">+{{ won(living.income) }}</div>
         </div>
         <div class="col-6 col-md-3">
           <div class="lb-label">이번달 사용</div>
@@ -110,11 +99,11 @@
           <div class="lb-value" :class="living.remaining < 0 ? 'text-danger' : ''">{{ won(living.remaining) }}</div>
         </div>
       </div>
-      <div v-if="living.target && (living.carryOver + living.charged) > 0" class="lb-bar mt-2">
+      <div v-if="living.target && (living.carryOver + living.income) > 0" class="lb-bar mt-2">
         <div class="lb-bar-fill" :style="{ width: barPct + '%' }"></div>
       </div>
-      <div v-if="living.target && (living.carryOver + living.charged) > 0" class="lb-bar-label small text-muted mt-1">
-        이번달 가용({{ won(living.carryOver + living.charged) }}) 대비 {{ barPct }}% 사용
+      <div v-if="living.target && (living.carryOver + living.income) > 0" class="lb-bar-label small text-muted mt-1">
+        이번달 가용({{ won(living.carryOver + living.income) }}) 대비 {{ barPct }}% 사용
       </div>
     </div>
 
@@ -212,7 +201,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   fetchDashboard, listRecurring, won, wonShort, ymNow,
-  applyLivingBudgetCharges, fetchLivingBudgetStatus,
+  fetchLivingBudgetStatus,
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
 import Donut from './components/Donut.vue'
@@ -233,29 +222,6 @@ const error = ref('')
 const d = ref(emptyDashboard())
 const recurring = ref([])
 const living = ref(null)        // 생활비 봉투 상태
-const livingNotice = ref('')    // 안내 메시지 (기본계좌 미설정 등)
-const charging = ref(false)     // 수동 충전 진행중
-
-async function manualCharge() {
-  charging.value = true
-  try {
-    const res = await applyLivingBudgetCharges()
-    if (res.applied > 0) {
-      alert(`자동 충전 ${res.applied}건이 추가되었습니다.`)
-    } else if (res.reason === 'no_default_account') {
-      alert('기본 결제 계좌(생활비 봉투)가 없습니다. 마이그레이션 SQL 을 실행하세요.')
-    } else if (res.reason === 'inactive') {
-      alert('생활비 봉투가 비활성 상태입니다. 고정지출 페이지에서 활성화하세요.')
-    } else {
-      alert('이미 모든 월에 충전 완료되어 있습니다. (추가 충전 없음)')
-    }
-    await load()
-  } catch (e) {
-    alert('충전 실패: ' + (e.message || String(e)))
-  } finally {
-    charging.value = false
-  }
-}
 
 function emptyDashboard() {
   return {
@@ -285,7 +251,7 @@ const liabilityAccounts = computed(() => d.value.accounts.filter(a => a.is_liabi
 
 const barPct = computed(() => {
   if (!living.value) return 0
-  const avail = (living.value.carryOver || 0) + (living.value.charged || 0)
+  const avail = (living.value.carryOver || 0) + (living.value.income || 0)
   if (avail <= 0) return 0
   return Math.min(100, Math.round((living.value.used || 0) / avail * 100))
 })
@@ -310,17 +276,6 @@ async function load() {
   recurring.value = []
   living.value = null
   try {
-    // 1) 누락된 매월 생활비 충전 자동 적용
-    const charge = await applyLivingBudgetCharges()
-    if (charge.reason === 'no_default_account') {
-      livingNotice.value = '기본 결제 계좌가 지정되지 않아 자동 충전되지 않았습니다. 자산 관리에서 설정해 주세요.'
-    } else if (charge.reason === 'inactive') {
-      livingNotice.value = '생활비 봉투가 비활성 상태입니다.'
-    } else {
-      livingNotice.value = ''
-    }
-
-    // 2) 요약/고정/봉투 동시 조회
     const [summary, recs, livingStatus] = await Promise.all([
       fetchDashboard(ym.value),
       listRecurring({ ym: ym.value, activeOnly: true }),

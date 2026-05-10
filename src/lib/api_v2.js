@@ -164,17 +164,39 @@ export async function createRecurring(payload) {
 export async function updateRecurring(id, fields) {
   const { data, error } = await supabase.from('recurring_items').update(fields).eq('id', id).select().single()
   if (error) throw error
+  // 이번 달 자동 거래는 새 설정으로 재생성될 수 있도록 삭제
+  // (applyRecurringTransfers 가 다음 호출 시 도래여부 체크 후 재생성)
+  await deleteThisMonthAuto(id)
   return data
 }
 
+async function deleteThisMonthAuto(recurringId) {
+  const ym = ymNow()
+  const { first, last } = ymRange(ym)
+  const { data: rows } = await supabase
+    .from('transactions').select('id')
+    .eq('recurring_id', recurringId)
+    .gte('date', first).lte('date', last)
+  for (const t of rows || []) {
+    await deleteTransaction(t.id)
+  }
+}
+
 export async function deleteRecurring(id) {
+  // 이 항목이 만든 모든 자동 거래 먼저 정리 (잔액 원복 포함)
+  const { data: rows } = await supabase
+    .from('transactions').select('id')
+    .eq('recurring_id', id)
+  for (const t of rows || []) {
+    await deleteTransaction(t.id)
+  }
   const { error } = await supabase.from('recurring_items').delete().eq('id', id)
   if (error) throw error
 }
 
 // ===== transactions =====
 // includeRecurring=false (기본): 자동 이체로 생성된 거래(recurring_id IS NOT NULL) 제외
-export async function listTransactions({ ym = null, owner = null, kind = null, includeRecurring = false } = {}) {
+export async function listTransactions({ ym = null, owner = null, kind = null, includeRecurring = false, accountId = null, limit = null } = {}) {
   let q = supabase.from('transactions').select('*').order('date', { ascending: false }).order('id', { ascending: false })
   if (ym) {
     const { first, last } = ymRange(ym)
@@ -182,7 +204,9 @@ export async function listTransactions({ ym = null, owner = null, kind = null, i
   }
   if (owner) q = q.eq('owner', owner)
   if (kind)  q = q.eq('kind', kind)
+  if (accountId) q = q.eq('account_id', accountId)
   if (!includeRecurring) q = q.is('recurring_id', null)
+  if (limit) q = q.limit(limit)
   const { data, error } = await q
   if (error) throw error
   return data || []
@@ -198,10 +222,24 @@ function txDelta(t) {
   return (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
 }
 
+// 거래용(tx_default) 계좌의 수동 지출은 자산 잔액 미반영 — 생활비 봉투 used 로만 추적
+async function shouldSkipBalanceSync(t) {
+  if (!t || t.kind !== 'expense' || t.recurring_id) return false
+  if (!t.account_id) return false
+  const { data } = await supabase.from('accounts').select('tx_default').eq('id', t.account_id).maybeSingle()
+  return !!data?.tx_default
+}
+
+async function applyTxBalance(t, delta) {
+  if (!t?.account_id || !delta) return
+  if (await shouldSkipBalanceSync(t)) return
+  await adjustAccountBalance(t.account_id, delta)
+}
+
 export async function createTransaction(payload) {
   const { data, error } = await supabase.from('transactions').insert(payload).select().single()
   if (error) throw error
-  if (data.account_id) await adjustAccountBalance(data.account_id, txDelta(data))
+  await applyTxBalance(data, txDelta(data))
   return data
 }
 
@@ -210,9 +248,9 @@ export async function updateTransaction(id, fields) {
   const { data, error } = await supabase.from('transactions').update(fields).eq('id', id).select().single()
   if (error) throw error
   // 이전 영향 되돌리기
-  if (oldRow?.account_id) await adjustAccountBalance(oldRow.account_id, -txDelta(oldRow))
+  if (oldRow) await applyTxBalance(oldRow, -txDelta(oldRow))
   // 새 영향 적용
-  if (data.account_id) await adjustAccountBalance(data.account_id, txDelta(data))
+  await applyTxBalance(data, txDelta(data))
   return data
 }
 
@@ -220,78 +258,11 @@ export async function deleteTransaction(id) {
   const { data: oldRow } = await supabase.from('transactions').select('*').eq('id', id).single()
   const { error } = await supabase.from('transactions').delete().eq('id', id)
   if (error) throw error
-  if (oldRow?.account_id) await adjustAccountBalance(oldRow.account_id, -txDelta(oldRow))
+  if (oldRow) await applyTxBalance(oldRow, -txDelta(oldRow))
 }
 
 // ===== living_budget (생활비 봉투) =====
-export const LIVING_CHARGE_CATEGORY = '생활비 충전'
-
-export async function getLivingBudget() {
-  const { data, error } = await supabase.from('living_budget').select('*').limit(1).maybeSingle()
-  if (error) throw error
-  return data
-}
-
-export async function updateLivingBudget(fields) {
-  const cur = await getLivingBudget()
-  if (!cur) {
-    const { data, error } = await supabase.from('living_budget').insert(fields).select().single()
-    if (error) throw error
-    return data
-  }
-  const { data, error } = await supabase.from('living_budget').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', cur.id).select().single()
-  if (error) throw error
-  return data
-}
-
-// 누락된 매월 충전을 자동 등록 (멱등)
-export async function applyLivingBudgetCharges() {
-  const config = await getLivingBudget()
-  if (!config || !config.active) return { applied: 0, reason: 'inactive' }
-
-  const accs = await listAccounts()
-  const target = accs.find(a => a.tx_default)
-  if (!target) return { applied: 0, reason: 'no_default_account' }
-
-  const now = new Date()
-  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-
-  // 시작월 ~ 현재월 사이 월 목록 만들기
-  const months = []
-  let [y, m] = config.start_ym.split('-').map(Number)
-  while (true) {
-    const ym = `${y}-${String(m).padStart(2, '0')}`
-    months.push(ym)
-    if (ym === curYm) break
-    m++; if (m > 12) { m = 1; y++ }
-    if (months.length > 240) break // safety
-  }
-
-  // 이미 충전된 월 조회
-  const { data: existing } = await supabase
-    .from('transactions').select('date')
-    .eq('category', LIVING_CHARGE_CATEGORY)
-    .eq('account_id', target.id)
-    .gte('date', `${config.start_ym}-01`)
-  const done = new Set((existing || []).map(t => (t.date || '').slice(0, 7)))
-
-  // 누락된 월에 대해 충전 (createTransaction 으로 잔액도 자동 동기화)
-  let applied = 0
-  for (const ym of months) {
-    if (done.has(ym)) continue
-    await createTransaction({
-      date: `${ym}-01`,
-      kind: 'income',
-      amount: config.monthly_amount,
-      category: LIVING_CHARGE_CATEGORY,
-      owner: target.owner,
-      account_id: target.id,
-      memo: '자동 생활비 충전',
-    })
-    applied++
-  }
-  return { applied, target }
-}
+// 자동 충전 기능은 제거됨 — 저축/이체 income 거래로 자연스럽게 채워지고 이월은 누적 계산.
 
 // ===== 매월 자동 거래 처리 =====
 // recurring_items 의 종류별로 멱등 자동 거래를 생성한다.
@@ -328,6 +299,10 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
   // 미래월은 무시 (현재월 초과 방지)
   const cur = ymNow()
   if (cmpYm(uptoYm, cur) > 0) uptoYm = cur
+
+  // 오늘(YYYY-MM-DD) — 이체일이 아직 안 도래한 이번 달 거래는 생성 보류
+  const _now = new Date()
+  const todayStr = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`
 
   const { data: items, error } = await supabase
     .from('recurring_items')
@@ -377,6 +352,9 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
       const day = Math.min(Math.max(r.day_of_month || 1, 1), lastDay)
       const date = `${ym}-${String(day).padStart(2, '0')}`
 
+      // 이체일이 아직 미래라면 이번 사이클은 스킵 — 다음 진입 시 도래하면 처리
+      if (date > todayStr) continue
+
       if (r.kind === 'income') {
         // 단방향 입금
         await createTransaction({
@@ -419,26 +397,22 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
 }
 
 // 이번 달 생활비 봉투 상태 (이월 carry-over 반영)
-// 반환: { config, target, carryOver(전월말 잔액), charged, used, remaining(=carry+charged-used), balanceNow(현재 실제 잔액) }
+// 반환: { target, carryOver(전월말 잔액), income(이번달 모든 입금), used(이번달 지출), remaining, balanceNow }
 export async function fetchLivingBudgetStatus(ym = ymNow()) {
-  const config = await getLivingBudget()
-  if (!config) return null
   const accs = await listAccounts()
   const target = accs.find(a => a.tx_default)
-  if (!target) return { config, target: null, carryOver: 0, charged: 0, used: 0, remaining: 0, balanceNow: 0 }
+  if (!target) return { target: null, carryOver: 0, income: 0, used: 0, remaining: 0, balanceNow: 0 }
 
   const { last: lastOfYm } = ymRange(ym)
 
-  // start_ym 시점 ~ ym 말일까지 모든 거래
+  // 해당 계좌의 ym 말일까지 모든 거래 (이전 월 누적 + 이번 달)
   const { data: txs } = await supabase
-    .from('transactions').select('kind, amount, category, date')
+    .from('transactions').select('kind, amount, date')
     .eq('account_id', target.id)
-    .gte('date', `${config.start_ym}-01`)
     .lte('date', lastOfYm)
 
   const all = txs || []
 
-  // 이번달 / 이전달 분리
   const thisYmPrefix = ym + '-'
   const thisMonth = []
   const prevMonths = []
@@ -449,22 +423,16 @@ export async function fetchLivingBudgetStatus(ym = ymNow()) {
 
   const sumKind = (rows, k) => rows.filter(t => t.kind === k).reduce((s, t) => s + Number(t.amount), 0)
 
-  // 이전 달까지 누적 (이월)
   const carryOver = sumKind(prevMonths, 'income') - sumKind(prevMonths, 'expense')
-
-  // 이번 달
-  const charged = thisMonth
-    .filter(t => t.kind === 'income' && t.category === LIVING_CHARGE_CATEGORY)
-    .reduce((s, t) => s + Number(t.amount), 0)
+  const income = sumKind(thisMonth, 'income')
   const used = sumKind(thisMonth, 'expense')
 
   return {
-    config,
     target,
     carryOver,
-    charged,
+    income,
     used,
-    remaining: carryOver + charged - used,
+    remaining: carryOver + income - used,
     balanceNow: Number(target.balance),
   }
 }

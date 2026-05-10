@@ -61,7 +61,10 @@
         </div>
         <div class="row g-2">
           <div v-for="a in group" :key="a.id" class="col-12 col-md-6 col-xl-4">
-            <div class="card account-card" :class="{ liability: a.is_liability }">
+            <div class="card account-card"
+                 :class="{ liability: a.is_liability, clickable: a.tx_enabled }"
+                 :title="a.tx_enabled ? '클릭하여 이용 내역 보기' : ''"
+                 @click="a.tx_enabled && openHistory(a)">
               <div class="ac-head">
                 <div class="ac-tags">
                   <span class="badge bg-light text-dark me-1">{{ typeLabel(a.type) }}</span>
@@ -69,7 +72,7 @@
                   <span v-if="a.tx_default" class="badge bg-warning text-dark me-1" title="기본 결제 계좌"><i class="fas fa-star"></i> 기본</span>
                   <span v-else-if="a.tx_enabled" class="badge bg-info text-dark me-1" title="거래에서 선택 가능"><i class="fas fa-credit-card"></i> 거래용</span>
                 </div>
-                <div class="ac-actions">
+                <div class="ac-actions" @click.stop>
                   <button class="icon-btn" title="잔액 수정" @click="openBalance(a)">
                     <i class="fas fa-coins"></i>
                   </button>
@@ -174,6 +177,32 @@
       </template>
     </Modal>
 
+    <!-- 이용 내역 모달 -->
+    <Modal v-model="historyOpen" :title="historyTarget ? `${historyTarget.name} 이용 내역` : '이용 내역'" size="md">
+      <div v-if="historyTarget" class="hist-summary mb-2">
+        <span class="badge bg-light text-dark me-1">{{ typeLabel(historyTarget.type) }}</span>
+        <span class="text-muted small me-2">{{ historyTarget.owner }}</span>
+        <strong>{{ won(historyTarget.balance) }}</strong>
+      </div>
+      <div v-if="historyLoading" class="text-muted small">불러오는 중...</div>
+      <div v-else-if="!historyItems.length" class="text-muted small text-center py-3">거래 내역 없음</div>
+      <ul v-else class="hist-list">
+        <li v-for="t in historyItems" :key="t.id">
+          <div class="hist-row">
+            <span class="hist-date small text-muted">{{ t.date }}</span>
+            <span class="hist-cat">{{ t.category || '미분류' }}</span>
+            <strong :class="t.kind === 'income' ? 'text-success' : 'text-danger'">
+              {{ t.kind === 'income' ? '+' : '-' }}{{ won(t.amount) }}
+            </strong>
+          </div>
+          <div v-if="t.memo" class="hist-memo small text-muted">{{ t.memo }}</div>
+        </li>
+      </ul>
+      <template #footer>
+        <button class="btn btn-light" @click="historyOpen = false">닫기</button>
+      </template>
+    </Modal>
+
     <!-- 삭제 확인 -->
     <Modal v-model="deleteOpen" title="계좌 삭제" size="sm">
       <p class="mb-1">정말 삭제하시겠어요?</p>
@@ -197,6 +226,7 @@ import {
   listAccounts, createAccount, updateAccount, deleteAccount, updateBalance,
   setDefaultPaymentAccount, clearDefaultPaymentAccount,
   listSnapshotsRange,
+  listTransactions,
   won, ymNow,
   ACCOUNT_TYPES, OWNERS,
 } from '../../lib/api_v2.js'
@@ -364,6 +394,21 @@ async function saveBalance() {
   } finally { saving.value = false }
 }
 
+// 이용 내역
+const historyOpen = ref(false)
+const historyTarget = ref(null)
+const historyItems = ref([])
+const historyLoading = ref(false)
+async function openHistory(a) {
+  historyTarget.value = a
+  historyItems.value = []
+  historyOpen.value = true
+  historyLoading.value = true
+  try {
+    historyItems.value = await listTransactions({ accountId: a.id, includeRecurring: true, limit: 200 })
+  } finally { historyLoading.value = false }
+}
+
 // 삭제
 const deleteOpen = ref(false)
 const delTarget = ref(null)
@@ -442,8 +487,35 @@ onMounted(reload)
   background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   height: 100%;
   border-left: 3px solid #5e72e4;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 .account-card.liability { border-left-color: #f5365c; background: #fff7f8; }
+.account-card.clickable { cursor: pointer; }
+.account-card.clickable:hover {
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.hist-summary {
+  padding: 0.5rem 0.75rem; background: #f9fbfd; border-radius: 8px;
+}
+.hist-list { list-style: none; padding: 0; margin: 0; }
+.hist-list li {
+  padding: 0.55rem 0.25rem;
+  border-bottom: 1px dashed #f0f3f7;
+}
+.hist-list li:last-child { border-bottom: none; }
+.hist-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  font-size: 0.92rem;
+}
+.hist-date { flex: 0 0 5.5rem; }
+.hist-cat {
+  flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: #32325d; font-weight: 500;
+}
+.hist-memo { padding-left: 5.9rem; margin-top: 0.15rem; }
 .ac-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
 .ac-actions { display: flex; gap: 0.15rem; }
 .ac-name { font-weight: 600; color: #32325d; }

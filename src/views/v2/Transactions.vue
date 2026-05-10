@@ -249,13 +249,14 @@ const filtered = computed(() => {
   })
 })
 
-const totals = computed(() => {
-  const income  = filtered.value.filter(t => t.kind === 'income').reduce((s, t) => s + Number(t.amount), 0)
-  const expense = filtered.value.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount), 0)
-  const carryOver = livingStatus.value?.carryOver || 0
-  // 잔여 = 이월 + 이번달 수입 - 이번달 지출 (v1 의 이월 누적 계산과 동일)
-  return { income, expense, carryOver, remaining: carryOver + income - expense }
-})
+// 4개 통계 카드는 livingStatus(=fetchLivingBudgetStatus) 값 직접 사용.
+// items 는 자동거래(recurring_id NOT NULL) 가 빠져있어서 합산용으로 부적합.
+const totals = computed(() => ({
+  carryOver: livingStatus.value?.carryOver || 0,
+  income:    livingStatus.value?.income    || 0,
+  expense:   livingStatus.value?.used      || 0,
+  remaining: livingStatus.value?.remaining || 0,
+}))
 
 const availableCategories = computed(() => {
   const set = new Set()

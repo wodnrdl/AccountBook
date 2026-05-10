@@ -23,68 +23,22 @@
       </div>
     </div>
 
-    <!-- 생활비 봉투 설정 -->
-    <div class="card section mb-3 living">
-      <div class="section-head">
-        <div class="d-flex align-items-center gap-2">
-          <i class="fas fa-shopping-basket text-info"></i>
-          <span class="section-title">생활비 봉투</span>
-        </div>
-        <button v-if="!editLiving" class="btn btn-sm btn-outline-primary" @click="startEditLiving">편집</button>
-      </div>
-      <div v-if="!editLiving" class="row g-2 align-items-center">
-        <div class="col-12 col-md-4">
-          <div class="lb-label">매월 충전액</div>
-          <div class="lb-value">{{ won(living?.monthly_amount || 0) }}</div>
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="lb-label">시작월</div>
-          <div class="lb-value">{{ living?.start_ym || '-' }}</div>
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="lb-label">상태</div>
-          <div class="lb-value">{{ living?.active ? '활성' : '비활성' }}</div>
-        </div>
-        <div class="col-12 small text-muted">
-          매월 1일에 기본 결제 계좌(자산 관리에서 ⭐ 표시) 로 자동 입금됩니다.
-        </div>
-      </div>
-      <div v-else class="row g-2 align-items-end">
-        <div class="col-12 col-md-4">
-          <label class="form-label small">매월 충전액 (원)</label>
-          <input v-model.number="livingForm.monthly_amount" type="number" class="form-control" />
-        </div>
-        <div class="col-6 col-md-3">
-          <label class="form-label small">시작월</label>
-          <input v-model="livingForm.start_ym" class="form-control" placeholder="2026-05" />
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="form-check mt-3">
-            <input id="lbActive" v-model="livingForm.active" type="checkbox" class="form-check-input" />
-            <label for="lbActive" class="form-check-label small">활성</label>
-          </div>
-        </div>
-        <div class="col-12 d-flex justify-content-end gap-2 mt-2">
-          <button class="btn btn-sm btn-light" @click="editLiving = false">취소</button>
-          <button class="btn btn-sm btn-primary" :disabled="savingLiving" @click="saveLiving">
-            <i v-if="savingLiving" class="fas fa-spinner fa-spin"></i> 저장
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- 요약 -->
     <div class="row g-3 mb-3">
-      <div class="col-6 col-md-4">
+      <div class="col-6 col-md-3">
         <div class="card stat income"><div class="stat-label">수입</div>
           <div class="stat-value text-success">{{ won(totals.income) }}</div></div>
       </div>
-      <div class="col-6 col-md-4">
-        <div class="card stat out"><div class="stat-label">고정지출 합계</div>
-          <div class="stat-value text-danger">{{ won(totals.totalOut) }}</div>
-          <div class="stat-sub small text-muted">이체+지출+보험+상환</div></div>
+      <div class="col-6 col-md-3">
+        <div class="card stat out"><div class="stat-label">고정지출</div>
+          <div class="stat-value text-danger">{{ won(totals.fixedOut) }}</div>
+          <div class="stat-sub small text-muted">지출+보험+상환</div></div>
       </div>
-      <div class="col-12 col-md-4">
+      <div class="col-6 col-md-3">
+        <div class="card stat saving"><div class="stat-label">저축/이체</div>
+          <div class="stat-value">{{ won(totals.transfer) }}</div></div>
+      </div>
+      <div class="col-6 col-md-3">
         <div class="card stat surplus" :class="{ neg: totals.surplus < 0 }">
           <div class="stat-label">가용 잉여</div>
           <div class="stat-value">{{ won(totals.surplus) }}</div></div>
@@ -94,44 +48,53 @@
     <!-- kind 별 그룹 -->
     <div v-if="loading && !items.length" class="text-muted">불러오는 중...</div>
     <div v-else>
-      <div v-for="g in groups" :key="g.kind" class="card section mb-3">
-        <div class="section-head">
-          <div class="d-flex align-items-center gap-2">
-            <span class="kind-label" :class="`kind-${g.kind}`">{{ g.label }}</span>
-            <span class="text-muted small">{{ g.items.length }}건</span>
+      <template v-for="sec in displaySections" :key="sec.key">
+        <div v-if="sec.groups.length" class="kind-section mb-4">
+          <div class="kind-section-head">
+            <h3 class="kind-section-title"><i class="fas" :class="sec.icon"></i> {{ sec.title }}</h3>
+            <strong class="ms-auto" :class="sec.totalClass">{{ won(sec.total) }}</strong>
           </div>
-          <strong>{{ won(g.total) }}</strong>
+          <div v-for="g in sec.groups" :key="g.kind" class="card section mb-2">
+            <div class="section-head">
+              <div class="d-flex align-items-center gap-2">
+                <span class="kind-label" :class="`kind-${g.kind}`">{{ g.label }}</span>
+                <span class="text-muted small">{{ g.items.length }}건</span>
+              </div>
+              <strong>{{ won(g.total) }}</strong>
+            </div>
+            <ul class="rec-list">
+              <li v-for="r in g.items" :key="r.id" :class="{ inactive: !r.active }">
+                <span class="badge bg-light text-dark me-2">{{ r.owner }}</span>
+                <span class="rec-name">{{ r.name }}</span>
+                <span v-if="r.day_of_month" class="text-muted small ms-2">매월 {{ r.day_of_month }}일</span>
+                <span v-if="r.end_ym" class="badge bg-warning ms-2 text-dark">~ {{ r.end_ym }}</span>
+                <span v-if="!r.active" class="badge bg-secondary ms-2">비활성</span>
+                <span v-if="r.source_account_id || r.target_account_id" class="text-muted small ms-2">
+                  <span v-if="r.source_account_id">{{ accountName(r.source_account_id) }}</span>
+                  <span v-if="r.source_account_id && r.target_account_id"> → </span>
+                  <span v-else-if="r.target_account_id">→ </span>
+                  <span v-if="r.target_account_id">{{ accountName(r.target_account_id) }}</span>
+                  <span v-if="isRecurringAuto(r)" class="badge bg-info ms-1" title="매월 자동 처리">자동</span>
+                </span>
+                <strong class="ms-auto amt">{{ won(r.amount) }}</strong>
+                <span class="actions ms-2">
+                  <button class="icon-btn" :title="r.active ? '비활성화' : '활성화'" @click="toggleActive(r)">
+                    <i class="fas" :class="r.active ? 'fa-toggle-on text-success' : 'fa-toggle-off text-muted'"></i>
+                  </button>
+                  <button class="icon-btn" title="편집" @click="openEdit(r)">
+                    <i class="fas fa-pen"></i>
+                  </button>
+                  <button class="icon-btn danger" title="삭제" @click="confirmDelete(r)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </span>
+              </li>
+            </ul>
+          </div>
         </div>
-        <ul class="rec-list">
-          <li v-for="r in g.items" :key="r.id" :class="{ inactive: !r.active }">
-            <span class="badge bg-light text-dark me-2">{{ r.owner }}</span>
-            <span class="rec-name">{{ r.name }}</span>
-            <span v-if="r.day_of_month" class="text-muted small ms-2">매월 {{ r.day_of_month }}일</span>
-            <span v-if="r.end_ym" class="badge bg-warning ms-2 text-dark">~ {{ r.end_ym }}</span>
-            <span v-if="!r.active" class="badge bg-secondary ms-2">비활성</span>
-            <span v-if="r.source_account_id || r.target_account_id" class="text-muted small ms-2">
-              <span v-if="r.source_account_id">{{ accountName(r.source_account_id) }}</span>
-              <span v-if="r.source_account_id && r.target_account_id"> → </span>
-              <span v-else-if="r.target_account_id">→ </span>
-              <span v-if="r.target_account_id">{{ accountName(r.target_account_id) }}</span>
-              <span v-if="isRecurringAuto(r)" class="badge bg-info ms-1" title="매월 자동 처리">자동</span>
-            </span>
-            <strong class="ms-auto amt">{{ won(r.amount) }}</strong>
-            <span class="actions ms-2">
-              <button class="icon-btn" :title="r.active ? '비활성화' : '활성화'" @click="toggleActive(r)">
-                <i class="fas" :class="r.active ? 'fa-toggle-on text-success' : 'fa-toggle-off text-muted'"></i>
-              </button>
-              <button class="icon-btn" title="편집" @click="openEdit(r)">
-                <i class="fas fa-pen"></i>
-              </button>
-              <button class="icon-btn danger" title="삭제" @click="confirmDelete(r)">
-                <i class="fas fa-trash"></i>
-              </button>
-            </span>
-          </li>
-        </ul>
-      </div>
-      <div v-if="!groups.length && !loading" class="text-muted small">표시할 항목 없음</div>
+      </template>
+      <div v-if="!displaySections.some(s => s.groups.length) && !loading"
+           class="text-muted small">표시할 항목 없음</div>
     </div>
 
     <!-- 추가/편집 모달 -->
@@ -178,8 +141,11 @@
         <label class="form-label small">출금 계좌</label>
         <select v-model="form.source_account_id" class="form-select">
           <option :value="null">— 선택 —</option>
-          <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.owner }} · {{ a.name }}</option>
+          <option v-for="a in sourceAccountOptions" :key="a.id" :value="a.id">{{ a.owner }} · {{ a.name }}</option>
         </select>
+        <div v-if="form.kind === 'transfer'" class="form-text small text-muted">
+          자산에서 "거래에서 사용" 체크된 계좌만 표시됩니다.
+        </div>
       </div>
       <div v-if="needsTargetAccount" class="mb-2">
         <label class="form-label small">{{ form.kind === 'income' ? '입금 계좌' : '입금 계좌 (대상)' }}</label>
@@ -230,7 +196,6 @@ import { ref, computed, onMounted } from 'vue'
 import {
   listRecurring, createRecurring, updateRecurring, deleteRecurring,
   listAccounts,
-  getLivingBudget, updateLivingBudget,
   applyRecurringTransfers, isRecurringAuto,
   won, ymNow,
   RECURRING_KINDS, OWNERS,
@@ -248,31 +213,6 @@ const showInactive = ref(false)
 const loading = ref(true)
 const saving = ref(false)
 
-// 생활비 봉투
-const living = ref(null)
-const editLiving = ref(false)
-const livingForm = ref({ monthly_amount: 1000000, start_ym: '2026-05', active: true })
-const savingLiving = ref(false)
-function startEditLiving() {
-  livingForm.value = {
-    monthly_amount: living.value?.monthly_amount ?? 1000000,
-    start_ym: living.value?.start_ym ?? ym.value,
-    active: living.value?.active ?? true,
-  }
-  editLiving.value = true
-}
-async function saveLiving() {
-  savingLiving.value = true
-  try {
-    living.value = await updateLivingBudget({
-      monthly_amount: Number(livingForm.value.monthly_amount) || 0,
-      start_ym: livingForm.value.start_ym,
-      active: !!livingForm.value.active,
-    })
-    editLiving.value = false
-  } finally { savingLiving.value = false }
-}
-
 const accountName = (id) => {
   const a = accounts.value.find(x => x.id === id)
   return a ? a.name : '-'
@@ -285,21 +225,29 @@ const totals = computed(() => {
   const expense = sumKind('expense')
   const insurance = sumKind('insurance')
   const loan_payment = sumKind('loan_payment')
-  const totalOut = transfer + expense + insurance + loan_payment
-  return { income, transfer, expense, insurance, loan_payment, totalOut, surplus: income - totalOut }
+  const fixedOut = expense + insurance + loan_payment           // 고정지출 (이체 제외)
+  const totalOut = fixedOut + transfer                          // 가용 잉여 계산용
+  return { income, transfer, expense, insurance, loan_payment, fixedOut, totalOut, surplus: income - totalOut }
 })
 
-const groups = computed(() => {
-  return RECURRING_KINDS.map(k => {
-    const list = items.value.filter(r => r.kind === k.value)
-    return {
-      kind: k.value,
-      label: k.label,
-      items: list,
-      total: list.filter(r => r.active).reduce((s, r) => s + Number(r.amount), 0),
-    }
-  }).filter(g => g.items.length)
-})
+function buildGroup(k) {
+  const list = items.value.filter(r => r.kind === k.value)
+  return {
+    kind: k.value,
+    label: k.label,
+    items: list,
+    total: list.filter(r => r.active).reduce((s, r) => s + Number(r.amount), 0),
+  }
+}
+const incomeGroups   = computed(() => RECURRING_KINDS.filter(k => k.value === 'income').map(buildGroup).filter(g => g.items.length))
+const fixedGroups    = computed(() => RECURRING_KINDS.filter(k => ['expense','insurance','loan_payment'].includes(k.value)).map(buildGroup).filter(g => g.items.length))
+const transferGroups = computed(() => RECURRING_KINDS.filter(k => k.value === 'transfer').map(buildGroup).filter(g => g.items.length))
+
+const displaySections = computed(() => [
+  { key: 'income',    title: '수입',      icon: 'fa-arrow-down text-success', total: totals.value.income,    totalClass: 'text-success', groups: incomeGroups.value   },
+  { key: 'fixed',     title: '고정지출',  icon: 'fa-arrow-up text-danger',    total: totals.value.fixedOut,  totalClass: 'text-danger',  groups: fixedGroups.value    },
+  { key: 'transfer',  title: '저축/이체', icon: 'fa-exchange-alt text-info',  total: totals.value.transfer,  totalClass: '',             groups: transferGroups.value },
+])
 
 // ====== 폼 ======
 const formOpen = ref(false)
@@ -314,6 +262,11 @@ function emptyForm() {
 }
 const needsSourceAccount = computed(() => ['transfer', 'loan_payment', 'expense', 'insurance'].includes(form.value.kind))
 const needsTargetAccount = computed(() => ['transfer', 'loan_payment', 'income'].includes(form.value.kind))
+// 저축/이체 출금은 "거래에서 사용" 켜진 계좌만 (거래 페이지의 결제 계좌와 일관)
+const sourceAccountOptions = computed(() => {
+  if (form.value.kind === 'transfer') return accounts.value.filter(a => a.tx_enabled)
+  return accounts.value
+})
 
 function openCreate() { form.value = emptyForm(); formOpen.value = true }
 function openEdit(r) {
@@ -383,14 +336,12 @@ async function reload() {
     // 자동 이체 누락분 먼저 처리 (멱등) — 그 후 잔액/거래가 갱신된 상태로 로드
     try { await applyRecurringTransfers(ym.value) } catch (e) { /* noop */ }
 
-    const [recs, accs, lb] = await Promise.all([
+    const [recs, accs] = await Promise.all([
       listRecurring({ ym: ym.value, activeOnly: !showInactive.value }),
       listAccounts(),
-      getLivingBudget(),
     ])
     items.value = recs
     accounts.value = accs
-    living.value = lb
   } finally { loading.value = false }
 }
 
@@ -421,9 +372,20 @@ onMounted(reload)
 }
 .stat.income  { border-left-color: #2dce89; }
 .stat.out     { border-left-color: #fb6340; }
-.stat.surplus { border-left-color: #11cdef; }
+.stat.saving  { border-left-color: #11cdef; }
+.stat.surplus { border-left-color: #5e72e4; }
 .stat.surplus.neg { border-left-color: #f5365c; }
 .stat.surplus.neg .stat-value { color: #f5365c; }
+
+.kind-section-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.25rem;
+  margin-bottom: 0.5rem;
+}
+.kind-section-title {
+  font-size: 1.05rem; font-weight: 700; color: #32325d; margin: 0;
+  display: flex; align-items: center; gap: 0.5rem;
+}
 .stat-label { font-size: 0.78rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }
 .stat-value { font-size: 1.3rem; font-weight: 700; color: #32325d; }
 .stat-sub { margin-top: 0.15rem; }

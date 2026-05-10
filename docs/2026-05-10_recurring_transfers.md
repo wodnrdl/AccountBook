@@ -125,3 +125,117 @@
 - `src/views/v2/Transactions.vue`
 - `src/views/v2/V2Layout.vue`
 - `docs/2026-05-10_recurring_transfers.md` (이 문서)
+
+---
+
+## 후속 보완 (같은 날 추가 작업)
+
+### 4. 생활비 봉투 단순화 — config 의존성 제거
+
+기존 `living_budget` 테이블의 `monthly_amount` / `start_ym` / `active` 설정과 `applyLivingBudgetCharges()` 자동 충전을 모두 **제거**.
+
+**왜:**
+- 자동 충전은 결국 income 거래로 잔액에 들어감 → 정기수입(income)이나 저축/이체(transfer) 의 입금 쪽으로 이미 대체 가능
+- 별도 충전 항목/UI/안내 알림이 중복이고, 시작월 설정·기본계좌 누락 안내 등 부수 분기가 많아 복잡도만 키움
+- 이제는 "기본 결제 계좌(⭐)의 모든 income/expense 합계"를 그대로 보여주면 충분
+
+**바뀐 동작 (`fetchLivingBudgetStatus`):**
+- `living_budget` config 의존 X → 기본 결제 계좌만 있으면 동작
+- `carryOver` = 해당 계좌의 이전 달까지 모든 (income − expense)
+- `income` = 이번 달 모든 income 합계 (충전 카테고리 한정 X)
+- `used` = 이번 달 모든 expense 합계
+- `remaining` = `carryOver + income − used`
+
+**Dashboard.vue:**
+- "이번달 충전" 라벨 → "이번달 입금"
+- 수동 충전 버튼·안내 메시지 제거 (`charging`, `livingNotice`, `manualCharge` 삭제)
+- 기본 결제 계좌 미설정 시에만 안내 + `자산 관리` 링크
+
+**Recurring.vue:**
+- 생활비 봉투 편집 카드 섹션 통째로 제거 (`getLivingBudget` / `updateLivingBudget` import 도 삭제)
+
+**V2Layout.vue:**
+- `onMounted` 의 `applyLivingBudgetCharges()` 호출 삭제 (`applyRecurringTransfers` 만 남음)
+
+> 참고: `living_budget` 테이블은 DB 에 그대로 남겨둠 (드롭하지 않음). 향후 다시 활용할 여지가 있어 read 만 사라진 상태.
+
+### 5. 거래용(`tx_default`) 계좌 수동 지출은 자산 잔액 미반영
+
+생활비 봉투(=기본 결제 계좌)의 수동 expense 거래는 이제 `accounts.balance` 를 깎지 않음. 봉투 잔액은 `fetchLivingBudgetStatus` 의 `remaining` 으로만 계산.
+
+**왜:**
+- 생활비를 쓸 때마다 봉투 잔액과 자산 카드 잔액이 함께 줄면 이중 표시 느낌
+- 봉투는 "이번 달 입금 − 사용" 으로 추적, 자산 카드 잔액은 자동 거래(이체/수입 등) 로만 변동시키는 게 직관적
+
+**구현 (`api_v2.js`):**
+- `shouldSkipBalanceSync(t)` — `expense` && `recurring_id == null` && 해당 계좌의 `tx_default == true` 일 때 잔액 동기화 스킵
+- `applyTxBalance(t, delta)` 헬퍼로 `createTransaction` / `updateTransaction` / `deleteTransaction` 모두 일관 처리
+- 자동 거래 (`recurring_id` 가 있는 경우) 는 항상 잔액 반영 — 월급/이체 등은 그대로 자산 잔액에 들어가야 함
+
+### 6. 고정지출 항목 수정/삭제 시 이번 달 자동 거래 정리
+
+**`updateRecurring(id, fields)`:**
+- 수정 후 해당 항목이 이번 달에 만든 자동 거래 삭제 (`deleteThisMonthAuto`)
+- 다음 `applyRecurringTransfers()` 호출 시 도래여부·새 설정으로 재생성됨
+
+**`deleteRecurring(id)`:**
+- 삭제 전 해당 항목이 만든 **모든** 자동 거래를 `deleteTransaction` 으로 정리 → 잔액도 자동 원복
+- 그 후 `recurring_items` 에서 행 삭제
+
+> 이전에는 `ON DELETE SET NULL` 로 거래는 남고 `recurring_id` 만 NULL 이 되어 거래 페이지에 노출됐는데, 실사용에서 "삭제했는데 잔액이 안 줄어든다" 혼란이 있어 적극 정리 방식으로 변경.
+
+### 7. 이체일 도래 전 자동 거래 보류
+
+`applyRecurringTransfers` 가 이번 달 처리 시 `day_of_month` 가 **오늘 이후**면 그 항목은 스킵.
+
+**왜:**
+- 매월 25일 월급인데 5일에 v2 진입했다고 25일자 거래가 미리 찍히면 잔액·요약이 실제와 어긋남
+- 도래일 지나서 다시 진입하면 멱등 처리로 정상 생성됨
+
+### 8. 저축/이체 출금 계좌는 `tx_enabled` 인 계좌만 노출
+
+`Recurring.vue` 모달에서 `kind === 'transfer'` 인 경우 출금 계좌 셀렉트는 `tx_enabled` 인 계좌로 한정.
+
+**왜:**
+- 거래 페이지의 결제 계좌 후보와 일관성 유지 — 적금/투자 같은 "거래에서 사용 X" 계좌가 출금원으로 잘못 선택되는 실수 방지
+
+`expense` / `insurance` / `loan_payment` 의 출금 계좌는 모든 계좌 노출 그대로.
+
+### 9. 자산 카드 클릭 → 이용 내역 모달 (`Assets.vue`)
+
+`tx_enabled` 인 계좌 카드를 클릭하면 해당 계좌의 최근 거래 200건 모달 표시.
+
+- `listTransactions({ accountId, includeRecurring: true, limit: 200 })`
+- 카드 우상단 액션 버튼은 `@click.stop` 으로 모달 트리거 차단
+- `clickable` 클래스로 호버 효과 (그림자 + transform)
+
+### 10. `listTransactions` API 확장
+
+옵션 추가:
+- `accountId` — 특정 계좌의 거래만 조회 (자산 이용 내역 모달용)
+- `limit` — 최대 행 수 제한
+- `includeRecurring` — 기본 false 유지 (거래 페이지·대시보드 합계 보호)
+
+### 11. 거래 페이지 합계 카드 — `livingStatus` 직접 사용
+
+기존: `filtered` 거래 합산
+문제: `filtered` 는 `recurring_id IS NOT NULL` 이 빠져있어 자동 입금/이체가 합계에 빠짐
+
+수정: `totals` 를 `fetchLivingBudgetStatus` 결과로 채움 → carryOver/income/expense/remaining 모두 자동 거래 포함된 실제 값.
+
+### 12. 고정지출 페이지 섹션 분리
+
+수입 / 고정지출 / 저축·이체 세 섹션 헤더 + 합계.
+
+- `fixedOut` = expense + insurance + loan_payment (이체 제외)
+- `transfer` 별도 표시 — 가용 잉여 계산은 기존대로 `income − (fixedOut + transfer)`
+- 섹션 헤더에 아이콘 + 섹션 합계 우측 정렬
+
+### 추가 변경 파일
+
+- `src/lib/api_v2.js`
+- `src/views/v2/Assets.vue`
+- `src/views/v2/Dashboard.vue`
+- `src/views/v2/Recurring.vue`
+- `src/views/v2/Transactions.vue`
+- `src/views/v2/V2Layout.vue`
