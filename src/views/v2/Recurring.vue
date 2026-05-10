@@ -307,6 +307,7 @@ async function saveForm() {
       await createRecurring(payload)
     }
     formOpen.value = false
+    try { await applyRecurringTransfers(ym.value) } catch (e) { /* noop */ }
     await reload()
   } finally { saving.value = false }
 }
@@ -314,6 +315,7 @@ async function saveForm() {
 async function toggleActive(r) {
   try {
     await updateRecurring(r.id, { active: !r.active })
+    try { await applyRecurringTransfers(ym.value) } catch (e) { /* noop */ }
     await reload()
   } catch (e) { /* noop */ }
 }
@@ -333,14 +335,12 @@ async function doDelete() {
 }
 
 // ====== 데이터 로딩 ======
+// 자동 이체 멱등 처리는 V2Layout 진입 시 이미 1회 수행됨 (라우트 전환마다 반복 X)
 async function reload() {
   loading.value = true
   // 이전 달 항목 잔상 제거
   items.value = []
   try {
-    // 자동 이체 누락분 먼저 처리 (멱등) — 그 후 잔액/거래가 갱신된 상태로 로드
-    try { await applyRecurringTransfers(ym.value) } catch (e) { /* noop */ }
-
     const [recs, accs] = await Promise.all([
       listRecurring({ ym: ym.value, activeOnly: !showInactive.value }),
       listAccounts(),

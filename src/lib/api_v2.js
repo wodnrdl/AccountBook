@@ -54,42 +54,63 @@ export function prevYm(ym) {
 }
 
 // ===== accounts =====
+// 모듈 레벨 캐시 — accounts 는 자주 조회되지만 변경 빈도는 낮음.
+// 변경 함수들은 모두 invalidateAccounts() 를 호출해서 다음 조회 때 재로딩.
+let _accountsCache = null
+let _accountsPromise = null
+function invalidateAccounts() {
+  _accountsCache = null
+  _accountsPromise = null
+}
+async function getAccountsCached() {
+  if (_accountsCache) return _accountsCache
+  if (_accountsPromise) return _accountsPromise
+  _accountsPromise = (async () => {
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*')
+      .order('owner').order('sort_order').order('id')
+    if (error) { _accountsPromise = null; throw error }
+    _accountsCache = data || []
+    _accountsPromise = null
+    return _accountsCache
+  })()
+  return _accountsPromise
+}
+
 export async function listAccounts() {
-  const { data, error } = await supabase
-    .from('accounts')
-    .select('*')
-    .order('owner').order('sort_order').order('id')
-  if (error) throw error
-  return data || []
+  return getAccountsCached()
 }
 
 export async function createAccount(payload) {
   const { data, error } = await supabase.from('accounts').insert(payload).select().single()
   if (error) throw error
+  invalidateAccounts()
   return data
 }
 
 export async function updateAccount(id, fields) {
   const { data, error } = await supabase.from('accounts').update(fields).eq('id', id).select().single()
   if (error) throw error
+  invalidateAccounts()
   return data
 }
 
 export async function deleteAccount(id) {
   const { error } = await supabase.from('accounts').delete().eq('id', id)
   if (error) throw error
+  invalidateAccounts()
 }
 
-// 결제 계좌 (거래 등록 시 선택 가능)
+// 결제 계좌 (거래 등록 시 선택 가능) — 캐시된 accounts 에서 필터링
 export async function listPaymentAccounts() {
-  const { data, error } = await supabase
-    .from('accounts')
-    .select('*')
-    .eq('tx_enabled', true)
-    .order('tx_default', { ascending: false })
-    .order('owner').order('sort_order').order('id')
-  if (error) throw error
-  return data || []
+  const all = await getAccountsCached()
+  return all.filter(a => a.tx_enabled).slice().sort((a, b) => {
+    if (a.tx_default !== b.tx_default) return a.tx_default ? -1 : 1
+    if (a.owner !== b.owner) return a.owner < b.owner ? -1 : 1
+    if ((a.sort_order || 0) !== (b.sort_order || 0)) return (a.sort_order || 0) - (b.sort_order || 0)
+    return a.id - b.id
+  })
 }
 
 // 기본 결제 계좌 지정 (다른 행은 자동으로 false)
@@ -100,11 +121,13 @@ export async function setDefaultPaymentAccount(id) {
   // 2) 지정한 한 건만 true (tx_enabled 도 함께 보장)
   const { error: e2 } = await supabase.from('accounts').update({ tx_default: true, tx_enabled: true }).eq('id', id)
   if (e2) throw e2
+  invalidateAccounts()
 }
 
 export async function clearDefaultPaymentAccount() {
   const { error } = await supabase.from('accounts').update({ tx_default: false }).eq('tx_default', true)
   if (error) throw error
+  invalidateAccounts()
 }
 
 // 잔액 갱신 + 해당월 스냅샷 upsert
@@ -217,17 +240,20 @@ async function adjustAccountBalance(accountId, delta) {
   if (!accountId || !delta) return
   const { error } = await supabase.rpc('increment_account_balance', { p_account_id: accountId, p_delta: delta })
   if (error) throw error
+  invalidateAccounts()
 }
 function txDelta(t) {
   return (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
 }
 
 // 거래용(tx_default) 계좌의 수동 지출은 자산 잔액 미반영 — 생활비 봉투 used 로만 추적
+// 캐시된 accounts 에서 lookup (별도 SELECT 없음)
 async function shouldSkipBalanceSync(t) {
   if (!t || t.kind !== 'expense' || t.recurring_id) return false
   if (!t.account_id) return false
-  const { data } = await supabase.from('accounts').select('tx_default').eq('id', t.account_id).maybeSingle()
-  return !!data?.tx_default
+  const accs = await getAccountsCached()
+  const a = accs.find(x => x.id === t.account_id)
+  return !!a?.tx_default
 }
 
 async function applyTxBalance(t, delta) {
@@ -398,8 +424,9 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
 
 // 이번 달 생활비 봉투 상태 (이월 carry-over 반영)
 // 반환: { target, carryOver(전월말 잔액), income(이번달 모든 입금), used(이번달 지출), remaining, balanceNow }
-export async function fetchLivingBudgetStatus(ym = ymNow()) {
-  const accs = await listAccounts()
+// opts.accounts 가 주어지면 그 결과를 재사용 (불필요한 listAccounts 호출 제거)
+export async function fetchLivingBudgetStatus(ym = ymNow(), opts = {}) {
+  const accs = opts.accounts || await getAccountsCached()
   const target = accs.find(a => a.tx_default)
   if (!target) return { target: null, carryOver: 0, income: 0, used: 0, remaining: 0, balanceNow: 0 }
 
