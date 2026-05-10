@@ -365,6 +365,15 @@ onMounted(reload)
 .page-title { display: flex; align-items: center; gap: 0.5rem; }
 .ym-label { font-weight: 600; min-width: 5.5rem; text-align: center; }
 
+/* 헤더 컨트롤들이 좁은 폭에서도 항목 내부 텍스트는 줄바꿈되지 않도록 */
+.recurring > .d-flex .btn,
+.recurring > .d-flex .form-check-label { white-space: nowrap; }
+.recurring > .d-flex .form-check {
+  display: flex; align-items: center; gap: 0.35rem;
+  white-space: nowrap;
+}
+.recurring > .d-flex .form-check-input { margin-top: 0; }
+
 .section { border: none; border-radius: 12px; padding: 1rem 1.1rem; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
 .section-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 2px solid #f0f3f7; margin-bottom: 0.5rem; }
 
