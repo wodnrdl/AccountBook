@@ -293,29 +293,52 @@ export async function applyLivingBudgetCharges() {
   return { applied, target }
 }
 
-// ===== 매월 자동 이체 (저축/적금/대출상환) =====
-// 한 쌍의 거래(출금 expense + 입금 income)를 멱등 생성한다.
-// recurring_id 로 중복 체크 → 한 항목당 한 달에 한 번만 실행.
-// kind: 'transfer' 또는 'loan_payment' 이고, source/target 둘 다 지정 + active 인 항목만.
-export const RECURRING_TRANSFER_CATEGORY = '저축이체'
+// ===== 매월 자동 거래 처리 =====
+// recurring_items 의 종류별로 멱등 자동 거래를 생성한다.
+// 종류                   계좌 입력             생성되는 거래
+// ─────────────────────────────────────────────────────────
+// income                 입금(target)          income +amount
+// expense / insurance    출금(source)          expense -amount
+// transfer / loan_payment 출금+입금            expense -amount + income +amount (한 쌍)
+// ─────────────────────────────────────────────────────────
+// 각 거래는 recurring_id 로 마킹되어 거래 페이지/대시보드 요약에서 제외된다.
+// 한 항목당 한 달에 한 번만 실행 (recurring_id+date 로 중복 체크).
+export const RECURRING_INCOME_CATEGORY    = '월급/수입'
+export const RECURRING_EXPENSE_CATEGORY   = '고정지출'
+export const RECURRING_INSURANCE_CATEGORY = '보험'
+export const RECURRING_TRANSFER_CATEGORY  = '저축이체'
+
+function recurringCategory(kind) {
+  if (kind === 'income')    return RECURRING_INCOME_CATEGORY
+  if (kind === 'insurance') return RECURRING_INSURANCE_CATEGORY
+  if (kind === 'expense')   return RECURRING_EXPENSE_CATEGORY
+  return RECURRING_TRANSFER_CATEGORY
+}
+
+// 자동 처리 가능 여부 (각 종류별로 필요한 계좌가 채워져있나?)
+export function isRecurringAuto(r) {
+  if (!r || !r.active) return false
+  if (r.kind === 'income')                                  return !!r.target_account_id
+  if (r.kind === 'expense' || r.kind === 'insurance')       return !!r.source_account_id
+  if (r.kind === 'transfer' || r.kind === 'loan_payment')   return !!r.source_account_id && !!r.target_account_id
+  return false
+}
 
 export async function applyRecurringTransfers(uptoYm = ymNow()) {
   // 미래월은 무시 (현재월 초과 방지)
   const cur = ymNow()
   if (cmpYm(uptoYm, cur) > 0) uptoYm = cur
 
-  // 활성 transfer/loan_payment 항목 중 source/target 둘 다 있는 것만
   const { data: items, error } = await supabase
     .from('recurring_items')
     .select('*')
     .eq('active', true)
-    .in('kind', ['transfer', 'loan_payment'])
   if (error) throw error
-  const targets = (items || []).filter(r => r.source_account_id && r.target_account_id)
-  if (!targets.length) return { applied: 0 }
+  const eligible = (items || []).filter(isRecurringAuto)
+  if (!eligible.length) return { applied: 0 }
 
   let applied = 0
-  for (const r of targets) {
+  for (const r of eligible) {
     // 처리할 월 목록: max(start_ym, '2026-05') ~ uptoYm
     // (마이그레이션 도입 이전 월은 백필하지 않음 — 자산 잔액 보호)
     const FEATURE_START = '2026-05'
@@ -342,6 +365,8 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
       if (months.length > 240) break // safety
     }
 
+    const category = recurringCategory(r.kind)
+
     for (const ym of months) {
       if (done.has(ym)) continue
       if (r.end_ym && cmpYm(ym, r.end_ym) > 0) continue
@@ -352,22 +377,41 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
       const day = Math.min(Math.max(r.day_of_month || 1, 1), lastDay)
       const date = `${ym}-${String(day).padStart(2, '0')}`
 
-      // 출금(expense)
-      await createTransaction({
-        date, kind: 'expense', amount: r.amount,
-        category: RECURRING_TRANSFER_CATEGORY, owner: r.owner,
-        account_id: r.source_account_id,
-        memo: `자동: ${r.name}`,
-        recurring_id: r.id,
-      })
-      // 입금(income)
-      await createTransaction({
-        date, kind: 'income', amount: r.amount,
-        category: RECURRING_TRANSFER_CATEGORY, owner: r.owner,
-        account_id: r.target_account_id,
-        memo: `자동: ${r.name}`,
-        recurring_id: r.id,
-      })
+      if (r.kind === 'income') {
+        // 단방향 입금
+        await createTransaction({
+          date, kind: 'income', amount: r.amount,
+          category, owner: r.owner,
+          account_id: r.target_account_id,
+          memo: `자동: ${r.name}`,
+          recurring_id: r.id,
+        })
+      } else if (r.kind === 'expense' || r.kind === 'insurance') {
+        // 단방향 출금
+        await createTransaction({
+          date, kind: 'expense', amount: r.amount,
+          category, owner: r.owner,
+          account_id: r.source_account_id,
+          memo: `자동: ${r.name}`,
+          recurring_id: r.id,
+        })
+      } else {
+        // transfer / loan_payment — 출금+입금 한 쌍
+        await createTransaction({
+          date, kind: 'expense', amount: r.amount,
+          category, owner: r.owner,
+          account_id: r.source_account_id,
+          memo: `자동: ${r.name}`,
+          recurring_id: r.id,
+        })
+        await createTransaction({
+          date, kind: 'income', amount: r.amount,
+          category, owner: r.owner,
+          account_id: r.target_account_id,
+          memo: `자동: ${r.name}`,
+          recurring_id: r.id,
+        })
+      }
       applied++
     }
   }
