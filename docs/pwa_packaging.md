@@ -162,14 +162,6 @@ const { needRefresh, updateServiceWorker } = useRegisterSW()
 3. ❌ **네이티브 앱** — 가족 2~3명 쓰는 앱이면 PWA 로 충분
 4. ❌ **오프라인 데이터** — 외출 중 거래 등록 자주 필요해지면 그때
 
-## 다음 세션에서 시작할 때
-
-다음 메시지로 시작하면 됨:
-> "PWA 패키징 작업 시작하자. docs/pwa_packaging.md 보고 1단계부터 진행해줘"
-
-또는 부분 작업:
-> "docs/pwa_packaging.md 의 4단계까지만 해줘 (아이콘 자산은 내가 따로 만들 예정)"
-
 ## 참고 링크
 
 - vite-plugin-pwa: https://vite-pwa-org.netlify.app/
