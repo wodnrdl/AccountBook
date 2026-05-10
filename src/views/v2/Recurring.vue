@@ -64,30 +64,34 @@
             </div>
             <ul class="rec-list">
               <li v-for="r in g.items" :key="r.id" :class="{ inactive: !r.active }">
-                <span class="badge bg-light text-dark me-2">{{ r.owner }}</span>
-                <span class="rec-name">{{ r.name }}</span>
-                <span v-if="r.day_of_month" class="text-muted small ms-2">매월 {{ r.day_of_month }}일</span>
-                <span v-if="r.end_ym" class="badge bg-warning ms-2 text-dark">~ {{ r.end_ym }}</span>
-                <span v-if="!r.active" class="badge bg-secondary ms-2">비활성</span>
-                <span v-if="r.source_account_id || r.target_account_id" class="text-muted small ms-2">
-                  <span v-if="r.source_account_id">{{ accountName(r.source_account_id) }}</span>
-                  <span v-if="r.source_account_id && r.target_account_id"> → </span>
-                  <span v-else-if="r.target_account_id">→ </span>
-                  <span v-if="r.target_account_id">{{ accountName(r.target_account_id) }}</span>
-                  <span v-if="isRecurringAuto(r)" class="badge bg-info ms-1" title="매월 자동 처리">자동</span>
-                </span>
-                <strong class="ms-auto amt">{{ won(r.amount) }}</strong>
-                <span class="actions ms-2">
-                  <button class="icon-btn" :title="r.active ? '비활성화' : '활성화'" @click="toggleActive(r)">
-                    <i class="fas" :class="r.active ? 'fa-toggle-on text-success' : 'fa-toggle-off text-muted'"></i>
-                  </button>
-                  <button class="icon-btn" title="편집" @click="openEdit(r)">
-                    <i class="fas fa-pen"></i>
-                  </button>
-                  <button class="icon-btn danger" title="삭제" @click="confirmDelete(r)">
-                    <i class="fas fa-trash"></i>
-                  </button>
-                </span>
+                <div class="rec-main">
+                  <span class="badge bg-light text-dark me-2">{{ r.owner }}</span>
+                  <span class="rec-name">{{ r.name }}</span>
+                  <strong class="ms-auto amt">{{ won(r.amount) }}</strong>
+                  <span class="actions ms-2">
+                    <button class="icon-btn" :title="r.active ? '비활성화' : '활성화'" @click="toggleActive(r)">
+                      <i class="fas" :class="r.active ? 'fa-toggle-on text-success' : 'fa-toggle-off text-muted'"></i>
+                    </button>
+                    <button class="icon-btn" title="편집" @click="openEdit(r)">
+                      <i class="fas fa-pen"></i>
+                    </button>
+                    <button class="icon-btn danger" title="삭제" @click="confirmDelete(r)">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </span>
+                </div>
+                <div v-if="hasMeta(r)" class="rec-meta">
+                  <span v-if="r.day_of_month">매월 {{ r.day_of_month }}일</span>
+                  <span v-if="r.source_account_id || r.target_account_id" class="meta-acc">
+                    <span v-if="r.source_account_id">{{ accountName(r.source_account_id) }}</span>
+                    <span v-if="r.source_account_id && r.target_account_id"> → </span>
+                    <span v-else-if="r.target_account_id">→ </span>
+                    <span v-if="r.target_account_id">{{ accountName(r.target_account_id) }}</span>
+                  </span>
+                  <span v-if="isRecurringAuto(r)" class="badge bg-info" title="매월 자동 처리">자동</span>
+                  <span v-if="r.end_ym" class="badge bg-warning text-dark">~ {{ r.end_ym }}</span>
+                  <span v-if="!r.active" class="badge bg-secondary">비활성</span>
+                </div>
               </li>
             </ul>
           </div>
@@ -217,6 +221,7 @@ const accountName = (id) => {
   const a = accounts.value.find(x => x.id === id)
   return a ? a.name : '-'
 }
+const hasMeta = (r) => !!(r.day_of_month || r.source_account_id || r.target_account_id || r.end_ym || !r.active || isRecurringAuto(r))
 
 const totals = computed(() => {
   const sumKind = (k) => items.value.filter(r => r.kind === k && r.active).reduce((s, r) => s + Number(r.amount), 0)
@@ -402,17 +407,34 @@ onMounted(reload)
 
 .rec-list { list-style: none; padding: 0; margin: 0; }
 .rec-list li {
-  display: flex; align-items: center; gap: 0.3rem;
-  padding: 0.5rem 0.25rem;
+  display: flex; flex-direction: column; gap: 0.2rem;
+  padding: 0.55rem 0.25rem;
   border-bottom: 1px dashed #f0f3f7;
   font-size: 0.92rem;
 }
 .rec-list li:last-child { border-bottom: none; }
 .rec-list li.inactive { opacity: 0.5; }
-.rec-name { color: #32325d; font-weight: 500; }
-.amt { color: #32325d; }
+.rec-main {
+  display: flex; align-items: center; gap: 0.3rem;
+  min-width: 0;
+}
+.rec-name {
+  color: #32325d; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; flex: 1 1 auto;
+}
+.amt { color: #32325d; flex-shrink: 0; }
 
-.actions { display: flex; gap: 0.1rem; }
+.rec-meta {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  padding-left: 0.15rem;
+  font-size: 0.78rem; color: #8898aa;
+}
+.rec-meta .meta-acc { color: #525f7f; }
+.rec-meta .badge { font-size: 0.68rem; padding: 0.18rem 0.45rem; }
+
+.actions { display: flex; gap: 0.1rem; flex-shrink: 0; }
 .icon-btn {
   width: 28px; height: 28px; border-radius: 6px;
   background: transparent; border: none; color: #8898aa; cursor: pointer;
@@ -424,8 +446,8 @@ onMounted(reload)
 .living .lb-value { font-size: 1.05rem; font-weight: 700; color: #32325d; }
 
 @media (max-width: 575px) {
-  .rec-list li { flex-wrap: wrap; }
-  .rec-list li .amt { margin-left: auto; }
-  .actions { margin-left: auto; }
+  .rec-list li { padding: 0.6rem 0.25rem; }
+  .rec-name { font-size: 0.92rem; }
+  .rec-meta { font-size: 0.74rem; }
 }
 </style>
