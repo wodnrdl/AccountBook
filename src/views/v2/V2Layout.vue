@@ -55,9 +55,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabase.js'
+import { applyLivingBudgetCharges, applyRecurringTransfers } from '../../lib/api_v2.js'
 
 const router = useRouter()
 const sidebarOpen = ref(false)
@@ -66,6 +67,12 @@ async function logout() {
   await supabase.auth.signOut()
   router.push('/login')
 }
+
+// v2 진입 시 자동 처리 (멱등 — 이미 처리된 월은 스킵)
+onMounted(async () => {
+  try { await applyLivingBudgetCharges() } catch (e) { /* noop */ }
+  try { await applyRecurringTransfers() } catch (e) { /* noop */ }
+})
 </script>
 
 <style scoped>

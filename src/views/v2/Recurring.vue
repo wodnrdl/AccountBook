@@ -109,7 +109,14 @@
             <span v-if="r.day_of_month" class="text-muted small ms-2">매월 {{ r.day_of_month }}일</span>
             <span v-if="r.end_ym" class="badge bg-warning ms-2 text-dark">~ {{ r.end_ym }}</span>
             <span v-if="!r.active" class="badge bg-secondary ms-2">비활성</span>
-            <span v-if="r.target_account_id" class="text-muted small ms-2">→ {{ accountName(r.target_account_id) }}</span>
+            <span v-if="r.source_account_id || r.target_account_id" class="text-muted small ms-2">
+              <span v-if="r.source_account_id">{{ accountName(r.source_account_id) }}</span>
+              <span v-if="r.source_account_id && r.target_account_id"> → </span>
+              <span v-else-if="r.target_account_id">→ </span>
+              <span v-if="r.target_account_id">{{ accountName(r.target_account_id) }}</span>
+              <span v-if="(r.kind === 'transfer' || r.kind === 'loan_payment') && r.source_account_id && r.target_account_id"
+                    class="badge bg-info ms-1" title="매월 자동 이체">자동</span>
+            </span>
             <strong class="ms-auto amt">{{ won(r.amount) }}</strong>
             <span class="actions ms-2">
               <button class="icon-btn" :title="r.active ? '비활성화' : '활성화'" @click="toggleActive(r)">
@@ -168,12 +175,22 @@
           <input v-model="form.end_ym" class="form-control" placeholder="비우면 무제한" />
         </div>
       </div>
-      <div v-if="needsTargetAccount" class="mb-2">
-        <label class="form-label small">대상 계좌 (선택)</label>
-        <select v-model="form.target_account_id" class="form-select">
-          <option :value="null">— 없음 —</option>
+      <div v-if="needsTransferAccounts" class="mb-2">
+        <label class="form-label small">출금 계좌</label>
+        <select v-model="form.source_account_id" class="form-select">
+          <option :value="null">— 선택 —</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.owner }} · {{ a.name }}</option>
         </select>
+      </div>
+      <div v-if="needsTransferAccounts" class="mb-2">
+        <label class="form-label small">입금 계좌 (대상)</label>
+        <select v-model="form.target_account_id" class="form-select">
+          <option :value="null">— 선택 —</option>
+          <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.owner }} · {{ a.name }}</option>
+        </select>
+        <div class="form-text small text-muted">
+          출금/입금 계좌가 모두 지정되면 매월 자동 이체 거래가 생성됩니다.
+        </div>
       </div>
       <div class="form-check mb-2">
         <input id="recActive" v-model="form.active" type="checkbox" class="form-check-input" />
@@ -214,6 +231,7 @@ import {
   listRecurring, createRecurring, updateRecurring, deleteRecurring,
   listAccounts,
   getLivingBudget, updateLivingBudget,
+  applyRecurringTransfers,
   won, ymNow,
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
@@ -291,10 +309,10 @@ function emptyForm() {
     id: null, name: '', kind: 'expense', owner: '재욱',
     amount: 0, day_of_month: null,
     start_ym: ym.value, end_ym: '',
-    target_account_id: null, active: true, memo: '',
+    source_account_id: null, target_account_id: null, active: true, memo: '',
   }
 }
-const needsTargetAccount = computed(() => ['transfer', 'loan_payment'].includes(form.value.kind))
+const needsTransferAccounts = computed(() => ['transfer', 'loan_payment'].includes(form.value.kind))
 
 function openCreate() { form.value = emptyForm(); formOpen.value = true }
 function openEdit(r) {
@@ -302,8 +320,8 @@ function openEdit(r) {
     id: r.id, name: r.name, kind: r.kind, owner: r.owner,
     amount: r.amount, day_of_month: r.day_of_month,
     start_ym: r.start_ym, end_ym: r.end_ym || '',
-    target_account_id: r.target_account_id, active: r.active,
-    memo: r.memo || '',
+    source_account_id: r.source_account_id, target_account_id: r.target_account_id,
+    active: r.active, memo: r.memo || '',
   }
   formOpen.value = true
 }
@@ -319,7 +337,8 @@ async function saveForm() {
       day_of_month: form.value.day_of_month || null,
       start_ym: form.value.start_ym || ym.value,
       end_ym: form.value.end_ym || null,
-      target_account_id: needsTargetAccount.value ? (form.value.target_account_id || null) : null,
+      source_account_id: needsTransferAccounts.value ? (form.value.source_account_id || null) : null,
+      target_account_id: needsTransferAccounts.value ? (form.value.target_account_id || null) : null,
       active: !!form.value.active,
       memo: form.value.memo || null,
     }
@@ -360,6 +379,9 @@ async function reload() {
   // 이전 달 항목 잔상 제거
   items.value = []
   try {
+    // 자동 이체 누락분 먼저 처리 (멱등) — 그 후 잔액/거래가 갱신된 상태로 로드
+    try { await applyRecurringTransfers(ym.value) } catch (e) { /* noop */ }
+
     const [recs, accs, lb] = await Promise.all([
       listRecurring({ ym: ym.value, activeOnly: !showInactive.value }),
       listAccounts(),

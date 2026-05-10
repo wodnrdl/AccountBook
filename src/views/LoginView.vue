@@ -63,7 +63,7 @@ async function login() {
     localStorage.removeItem('savedEmail')
   }
 
-  router.push('/home')
+  router.push('/v2')
 }
 </script>
 

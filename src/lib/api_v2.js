@@ -173,7 +173,8 @@ export async function deleteRecurring(id) {
 }
 
 // ===== transactions =====
-export async function listTransactions({ ym = null, owner = null, kind = null } = {}) {
+// includeRecurring=false (기본): 자동 이체로 생성된 거래(recurring_id IS NOT NULL) 제외
+export async function listTransactions({ ym = null, owner = null, kind = null, includeRecurring = false } = {}) {
   let q = supabase.from('transactions').select('*').order('date', { ascending: false }).order('id', { ascending: false })
   if (ym) {
     const { first, last } = ymRange(ym)
@@ -181,6 +182,7 @@ export async function listTransactions({ ym = null, owner = null, kind = null } 
   }
   if (owner) q = q.eq('owner', owner)
   if (kind)  q = q.eq('kind', kind)
+  if (!includeRecurring) q = q.is('recurring_id', null)
   const { data, error } = await q
   if (error) throw error
   return data || []
@@ -289,6 +291,87 @@ export async function applyLivingBudgetCharges() {
     applied++
   }
   return { applied, target }
+}
+
+// ===== 매월 자동 이체 (저축/적금/대출상환) =====
+// 한 쌍의 거래(출금 expense + 입금 income)를 멱등 생성한다.
+// recurring_id 로 중복 체크 → 한 항목당 한 달에 한 번만 실행.
+// kind: 'transfer' 또는 'loan_payment' 이고, source/target 둘 다 지정 + active 인 항목만.
+export const RECURRING_TRANSFER_CATEGORY = '저축이체'
+
+export async function applyRecurringTransfers(uptoYm = ymNow()) {
+  // 미래월은 무시 (현재월 초과 방지)
+  const cur = ymNow()
+  if (cmpYm(uptoYm, cur) > 0) uptoYm = cur
+
+  // 활성 transfer/loan_payment 항목 중 source/target 둘 다 있는 것만
+  const { data: items, error } = await supabase
+    .from('recurring_items')
+    .select('*')
+    .eq('active', true)
+    .in('kind', ['transfer', 'loan_payment'])
+  if (error) throw error
+  const targets = (items || []).filter(r => r.source_account_id && r.target_account_id)
+  if (!targets.length) return { applied: 0 }
+
+  let applied = 0
+  for (const r of targets) {
+    // 처리할 월 목록: max(start_ym, '2026-05') ~ uptoYm
+    // (마이그레이션 도입 이전 월은 백필하지 않음 — 자산 잔액 보호)
+    const FEATURE_START = '2026-05'
+    const startYm = cmpYm(r.start_ym, FEATURE_START) > 0 ? r.start_ym : FEATURE_START
+    if (cmpYm(startYm, uptoYm) > 0) continue
+
+    // 이미 처리된 월 조회
+    const { first } = ymRange(startYm)
+    const { last:  lastUpto } = ymRange(uptoYm)
+    const { data: existing } = await supabase
+      .from('transactions').select('date')
+      .eq('recurring_id', r.id)
+      .gte('date', first).lte('date', lastUpto)
+    const done = new Set((existing || []).map(t => (t.date || '').slice(0, 7)))
+
+    // 월 목록 생성
+    let [y, m] = startYm.split('-').map(Number)
+    const months = []
+    while (true) {
+      const ym = `${y}-${String(m).padStart(2, '0')}`
+      months.push(ym)
+      if (ym === uptoYm) break
+      m++; if (m > 12) { m = 1; y++ }
+      if (months.length > 240) break // safety
+    }
+
+    for (const ym of months) {
+      if (done.has(ym)) continue
+      if (r.end_ym && cmpYm(ym, r.end_ym) > 0) continue
+
+      // 날짜: day_of_month (없으면 1일), 말일 초과는 그 달 말일로 클램프
+      const { last } = ymRange(ym)
+      const lastDay = Number(last.slice(-2))
+      const day = Math.min(Math.max(r.day_of_month || 1, 1), lastDay)
+      const date = `${ym}-${String(day).padStart(2, '0')}`
+
+      // 출금(expense)
+      await createTransaction({
+        date, kind: 'expense', amount: r.amount,
+        category: RECURRING_TRANSFER_CATEGORY, owner: r.owner,
+        account_id: r.source_account_id,
+        memo: `자동: ${r.name}`,
+        recurring_id: r.id,
+      })
+      // 입금(income)
+      await createTransaction({
+        date, kind: 'income', amount: r.amount,
+        category: RECURRING_TRANSFER_CATEGORY, owner: r.owner,
+        account_id: r.target_account_id,
+        memo: `자동: ${r.name}`,
+        recurring_id: r.id,
+      })
+      applied++
+    }
+  }
+  return { applied }
 }
 
 // 이번 달 생활비 봉투 상태 (이월 carry-over 반영)

@@ -92,23 +92,35 @@
           </span>
         </div>
         <ul class="tx-list">
-          <li v-for="t in grp.items" :key="t.id">
-            <span class="kind-dot" :class="`k-${t.kind}`"></span>
-            <span class="tx-cat">{{ t.category || '미분류' }}</span>
-            <span class="badge bg-light text-dark ms-2">{{ t.owner }}</span>
-            <span v-if="t.account_id" class="text-muted small ms-2">{{ accountName(t.account_id) }}</span>
-            <span v-if="t.memo" class="tx-memo text-muted small ms-2">— {{ t.memo }}</span>
-            <strong class="ms-auto" :class="t.kind === 'income' ? 'text-success' : 'text-danger'">
-              {{ t.kind === 'income' ? '+' : '-' }}{{ won(t.amount) }}
-            </strong>
-            <span class="actions ms-2">
-              <button class="icon-btn" title="편집" @click="openEdit(t)">
-                <i class="fas fa-pen"></i>
-              </button>
-              <button class="icon-btn danger" title="삭제" @click="confirmDelete(t)">
-                <i class="fas fa-trash"></i>
-              </button>
-            </span>
+          <li v-for="t in grp.items" :key="t.id" :class="{ open: expandedId === t.id }">
+            <div class="tx-main" @click="toggleExpand(t.id)">
+              <span class="kind-dot" :class="`k-${t.kind}`"></span>
+              <span class="tx-cat">{{ t.category || '미분류' }}</span>
+              <strong class="tx-amount" :class="t.kind === 'income' ? 'text-success' : 'text-danger'">
+                {{ t.kind === 'income' ? '+' : '-' }}{{ won(t.amount) }}
+              </strong>
+              <span class="actions" @click.stop>
+                <button class="icon-btn" title="편집" @click="openEdit(t)">
+                  <i class="fas fa-pen"></i>
+                </button>
+                <button class="icon-btn danger" title="삭제" @click="confirmDelete(t)">
+                  <i class="fas fa-trash"></i>
+                </button>
+                <button class="icon-btn caret" :class="{ rotated: expandedId === t.id }"
+                        title="상세" @click.stop="toggleExpand(t.id)">
+                  <i class="fas fa-chevron-down"></i>
+                </button>
+              </span>
+            </div>
+            <div v-if="expandedId === t.id" class="tx-detail">
+              <div class="d-row"><span class="d-label">소유자</span><span class="d-value">{{ t.owner }}</span></div>
+              <div v-if="t.account_id" class="d-row">
+                <span class="d-label">계좌</span><span class="d-value">{{ accountName(t.account_id) }}</span>
+              </div>
+              <div v-if="t.memo" class="d-row">
+                <span class="d-label">메모</span><span class="d-value">{{ t.memo }}</span>
+              </div>
+            </div>
           </li>
         </ul>
       </div>
@@ -218,6 +230,10 @@ const saving = ref(false)
 const defaultPaymentId = computed(() => paymentAccounts.value.find(a => a.tx_default)?.id || null)
 
 const filters = ref({ kind: 'all', owner: 'all', category: 'all' })
+const expandedId = ref(null)
+function toggleExpand(id) {
+  expandedId.value = expandedId.value === id ? null : id
+}
 
 const accountName = (id) => {
   const a = accounts.value.find(x => x.id === id)
@@ -453,30 +469,57 @@ onMounted(reload)
 
 .tx-list { list-style: none; padding: 0; margin: 0; }
 .tx-list li {
-  display: flex; align-items: center; gap: 0.3rem;
-  padding: 0.5rem 0;
   border-bottom: 1px dashed #f0f3f7;
   font-size: 0.92rem;
 }
 .tx-list li:last-child { border-bottom: none; }
-.tx-cat { font-weight: 600; color: #32325d; }
-.tx-memo { font-style: italic; }
+
+.tx-main {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.55rem 0;
+  cursor: pointer;
+  min-width: 0;
+}
+.tx-main:hover { background: #fafbfc; }
+.tx-cat {
+  font-weight: 600; color: #32325d;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; flex: 1 1 auto;
+}
+.tx-amount { flex-shrink: 0; }
 .kind-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .kind-dot.k-income  { background: #2dce89; }
 .kind-dot.k-expense { background: #f5365c; }
 
-.actions { display: flex; gap: 0.1rem; }
+.actions { display: flex; gap: 0.1rem; flex-shrink: 0; }
 .icon-btn {
   width: 28px; height: 28px; border-radius: 6px;
   background: transparent; border: none; color: #8898aa; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .icon-btn:hover { background: #f0f3f7; color: #5e72e4; }
 .icon-btn.danger:hover { color: #f5365c; }
+.icon-btn.caret i { transition: transform 0.18s ease; }
+.icon-btn.caret.rotated i { transform: rotate(180deg); }
+
+/* 펼친 상세 */
+.tx-detail {
+  padding: 0.5rem 0.6rem 0.7rem 1.2rem;
+  background: #fafbfc;
+  border-radius: 8px;
+  margin-bottom: 0.4rem;
+  font-size: 0.88rem;
+}
+.d-row { display: flex; gap: 0.6rem; padding: 0.15rem 0; }
+.d-label {
+  flex: 0 0 3.5rem; color: #8898aa; font-weight: 600; font-size: 0.78rem;
+  text-transform: uppercase;
+}
+.d-value { color: #32325d; word-break: break-all; }
 
 @media (max-width: 575px) {
-  .tx-list li { flex-wrap: wrap; }
-  .tx-list li strong { margin-left: auto; }
-  .actions { margin-left: auto; }
+  .tx-main { font-size: 0.88rem; gap: 0.3rem; }
+  .icon-btn { width: 26px; height: 26px; }
   .stat-value { font-size: 1rem; }
 }
 </style>
