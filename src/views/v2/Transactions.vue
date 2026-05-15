@@ -13,9 +13,6 @@
         <button class="btn btn-sm btn-light" @click="reload" :disabled="loading" title="새로고침">
           <i class="fas fa-sync-alt" :class="{ 'fa-spin': loading }"></i>
         </button>
-        <button class="btn btn-sm btn-primary" @click="openCreate">
-          <i class="fas fa-plus"></i> 추가
-        </button>
       </div>
     </div>
 
@@ -199,6 +196,8 @@
         </button>
       </template>
     </Modal>
+
+    <FabAdd label="거래 추가" @click="openCreate" />
   </div>
 </template>
 
@@ -211,6 +210,7 @@ import {
   won, OWNERS,
 } from '../../lib/api_v2.js'
 import Modal from './components/Modal.vue'
+import FabAdd from './components/FabAdd.vue'
 
 const SUGGEST_EXPENSE = ['식비', '카페', '교통', '쇼핑', '생활', '의료', '여가', '교육', '통신', '미용', '기타']
 const SUGGEST_INCOME  = ['보너스', '부수입', '환급', '용돈', '기타']

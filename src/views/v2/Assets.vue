@@ -6,9 +6,6 @@
         <button class="btn btn-sm btn-light" @click="reload" :disabled="loading">
           <i class="fas fa-sync-alt" :class="{ 'fa-spin': loading }"></i>
         </button>
-        <button class="btn btn-sm btn-primary" @click="openCreate">
-          <i class="fas fa-plus"></i> 계좌 추가
-        </button>
       </div>
     </div>
 
@@ -217,6 +214,8 @@
         </button>
       </template>
     </Modal>
+
+    <FabAdd label="계좌 추가" @click="openCreate" />
   </div>
 </template>
 
@@ -232,6 +231,7 @@ import {
 } from '../../lib/api_v2.js'
 import LineChart from './components/LineChart.vue'
 import Modal from './components/Modal.vue'
+import FabAdd from './components/FabAdd.vue'
 
 const OWNER_COLORS = {
   '재욱':   '#5e72e4',

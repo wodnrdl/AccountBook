@@ -17,9 +17,6 @@
         <button class="btn btn-sm btn-light" @click="reload" :disabled="loading" title="새로고침">
           <i class="fas fa-sync-alt" :class="{ 'fa-spin': loading }"></i>
         </button>
-        <button class="btn btn-sm btn-primary" @click="openCreate">
-          <i class="fas fa-plus"></i> 항목 추가
-        </button>
       </div>
     </div>
 
@@ -192,6 +189,8 @@
         </button>
       </template>
     </Modal>
+
+    <FabAdd label="항목 추가" @click="openCreate" />
   </div>
 </template>
 
@@ -205,6 +204,7 @@ import {
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
 import Modal from './components/Modal.vue'
+import FabAdd from './components/FabAdd.vue'
 
 const today = new Date()
 const year  = ref(today.getFullYear())
