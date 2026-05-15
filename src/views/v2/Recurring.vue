@@ -336,10 +336,10 @@ async function doDelete() {
 
 // ====== 데이터 로딩 ======
 // 자동 이체 멱등 처리는 V2Layout 진입 시 이미 1회 수행됨 (라우트 전환마다 반복 X)
-async function reload() {
+async function reload({ resetList = false } = {}) {
   loading.value = true
-  // 이전 달 항목 잔상 제거
-  items.value = []
+  // 월 전환처럼 컨텍스트가 완전히 바뀔 때만 잔상 제거 (저장 후 reload 시엔 유지 → 스크롤 보존)
+  if (resetList) items.value = []
   try {
     const [recs, accs] = await Promise.all([
       listRecurring({ ym: ym.value, activeOnly: !showInactive.value }),
@@ -355,7 +355,7 @@ function shiftMonth(delta) {
   if (m < 1)  { m = 12; y-- }
   if (m > 12) { m = 1;  y++ }
   year.value = y; month.value = m
-  reload()
+  reload({ resetList: true })
 }
 
 onMounted(reload)

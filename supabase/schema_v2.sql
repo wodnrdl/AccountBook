@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS recurring_items (
   active            BOOLEAN NOT NULL DEFAULT TRUE,
   memo              TEXT,
   sort_order        INTEGER NOT NULL DEFAULT 0,
+  last_applied_ym   TEXT,                 -- 마지막으로 자동거래를 생성한 월 (YYYY-MM). 멱등 판단용.
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

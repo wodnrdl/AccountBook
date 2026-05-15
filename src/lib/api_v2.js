@@ -53,6 +53,13 @@ export function prevYm(ym) {
   return `${y}-${String(m).padStart(2, '0')}`
 }
 
+// ym 의 다음 달
+export function nextYm(ym) {
+  let [y, m] = ym.split('-').map(Number)
+  m++; if (m > 12) { m = 1; y++ }
+  return `${y}-${String(m).padStart(2, '0')}`
+}
+
 // ===== accounts =====
 // 모듈 레벨 캐시 — accounts 는 자주 조회되지만 변경 빈도는 낮음.
 // 변경 함수들은 모두 invalidateAccounts() 를 호출해서 다음 조회 때 재로딩.
@@ -187,9 +194,10 @@ export async function createRecurring(payload) {
 export async function updateRecurring(id, fields) {
   const { data, error } = await supabase.from('recurring_items').update(fields).eq('id', id).select().single()
   if (error) throw error
-  // 이번 달 자동 거래는 새 설정으로 재생성될 수 있도록 삭제
+  // 이번 달 자동 거래는 새 설정으로 재생성될 수 있도록 삭제 + 마커 되돌림
   // (applyRecurringTransfers 가 다음 호출 시 도래여부 체크 후 재생성)
   await deleteThisMonthAuto(id)
+  await rewindLastAppliedIfThisMonth(data)
   return data
 }
 
@@ -203,6 +211,18 @@ async function deleteThisMonthAuto(recurringId) {
   for (const t of rows || []) {
     await deleteTransaction(t.id)
   }
+}
+
+// updateRecurring 후 이번 달이 이미 처리됐다면 마커를 직전 달로 되돌려
+// applyRecurringTransfers 가 새 설정으로 다시 생성하게 한다.
+async function rewindLastAppliedIfThisMonth(r) {
+  if (!r || !r.last_applied_ym) return
+  const cur = ymNow()
+  if (cmpYm(r.last_applied_ym, cur) < 0) return  // 이번 달은 아직 미적용 — 그대로
+  const rewindTo = prevYm(cur)
+  // 시작월 이전으로 가지 않도록: 더 앞이면 null 로 (FEATURE_START 부터 재처리)
+  const newVal = cmpYm(rewindTo, r.start_ym) < 0 ? null : rewindTo
+  await supabase.from('recurring_items').update({ last_applied_ym: newVal }).eq('id', r.id)
 }
 
 export async function deleteRecurring(id) {
@@ -299,7 +319,9 @@ export async function deleteTransaction(id) {
 // transfer / loan_payment 출금+입금            expense -amount + income +amount (한 쌍)
 // ─────────────────────────────────────────────────────────
 // 각 거래는 recurring_id 로 마킹되어 거래 페이지/대시보드 요약에서 제외된다.
-// 한 항목당 한 달에 한 번만 실행 (recurring_id+date 로 중복 체크).
+// 멱등 판단은 recurring_items.last_applied_ym (TEXT 'YYYY-MM') 으로 한다.
+// → 자동거래를 수동 삭제해도 재생성되지 않는다 (의도된 삭제로 간주).
+// 의도적 재처리는 updateRecurring 이 마커를 직전 달로 되돌리는 방식으로 트리거한다.
 export const RECURRING_INCOME_CATEGORY    = '월급/수입'
 export const RECURRING_EXPENSE_CATEGORY   = '고정지출'
 export const RECURRING_INSURANCE_CATEGORY = '보험'
@@ -338,39 +360,28 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
   const eligible = (items || []).filter(isRecurringAuto)
   if (!eligible.length) return { applied: 0 }
 
+  // 마이그레이션 도입 이전 월은 백필하지 않음 — 자산 잔액 보호
+  const FEATURE_START = '2026-05'
+
   let applied = 0
   for (const r of eligible) {
-    // 처리할 월 목록: max(start_ym, '2026-05') ~ uptoYm
-    // (마이그레이션 도입 이전 월은 백필하지 않음 — 자산 잔액 보호)
-    const FEATURE_START = '2026-05'
-    const startYm = cmpYm(r.start_ym, FEATURE_START) > 0 ? r.start_ym : FEATURE_START
-    if (cmpYm(startYm, uptoYm) > 0) continue
-
-    // 이미 처리된 월 조회
-    const { first } = ymRange(startYm)
-    const { last:  lastUpto } = ymRange(uptoYm)
-    const { data: existing } = await supabase
-      .from('transactions').select('date')
-      .eq('recurring_id', r.id)
-      .gte('date', first).lte('date', lastUpto)
-    const done = new Set((existing || []).map(t => (t.date || '').slice(0, 7)))
-
-    // 월 목록 생성
-    let [y, m] = startYm.split('-').map(Number)
-    const months = []
-    while (true) {
-      const ym = `${y}-${String(m).padStart(2, '0')}`
-      months.push(ym)
-      if (ym === uptoYm) break
-      m++; if (m > 12) { m = 1; y++ }
-      if (months.length > 240) break // safety
+    // 시작월: max(FEATURE_START, r.start_ym, nextYm(last_applied_ym))
+    let startYm = cmpYm(r.start_ym, FEATURE_START) > 0 ? r.start_ym : FEATURE_START
+    if (r.last_applied_ym) {
+      const after = nextYm(r.last_applied_ym)
+      if (cmpYm(after, startYm) > 0) startYm = after
     }
+    if (cmpYm(startYm, uptoYm) > 0) continue
 
     const category = recurringCategory(r.kind)
 
-    for (const ym of months) {
-      if (done.has(ym)) continue
-      if (r.end_ym && cmpYm(ym, r.end_ym) > 0) continue
+    // 시작월부터 순서대로 처리. 이체일 미도래면 break (이후 달도 어차피 미래).
+    let [y, m] = startYm.split('-').map(Number)
+    let safety = 0
+    while (safety++ < 240) {
+      const ym = `${y}-${String(m).padStart(2, '0')}`
+
+      if (r.end_ym && cmpYm(ym, r.end_ym) > 0) break
 
       // 날짜: day_of_month (없으면 1일), 말일 초과는 그 달 말일로 클램프
       const { last } = ymRange(ym)
@@ -378,11 +389,10 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
       const day = Math.min(Math.max(r.day_of_month || 1, 1), lastDay)
       const date = `${ym}-${String(day).padStart(2, '0')}`
 
-      // 이체일이 아직 미래라면 이번 사이클은 스킵 — 다음 진입 시 도래하면 처리
-      if (date > todayStr) continue
+      // 이체일이 아직 미래라면 이후 달도 모두 미래 — 중단 (다음 진입 시 재시도)
+      if (date > todayStr) break
 
       if (r.kind === 'income') {
-        // 단방향 입금
         await createTransaction({
           date, kind: 'income', amount: r.amount,
           category, owner: r.owner,
@@ -391,7 +401,6 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
           recurring_id: r.id,
         })
       } else if (r.kind === 'expense' || r.kind === 'insurance') {
-        // 단방향 출금
         await createTransaction({
           date, kind: 'expense', amount: r.amount,
           category, owner: r.owner,
@@ -416,7 +425,18 @@ export async function applyRecurringTransfers(uptoYm = ymNow()) {
           recurring_id: r.id,
         })
       }
+
+      // 처리 완료 마커 갱신 (DB + 인메모리)
+      const { error: upErr } = await supabase
+        .from('recurring_items')
+        .update({ last_applied_ym: ym })
+        .eq('id', r.id)
+      if (upErr) throw upErr
+      r.last_applied_ym = ym
       applied++
+
+      if (ym === uptoYm) break
+      m++; if (m > 12) { m = 1; y++ }
     }
   }
   return { applied }

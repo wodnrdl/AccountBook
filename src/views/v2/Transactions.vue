@@ -75,7 +75,7 @@
     </div>
 
     <!-- 리스트 -->
-    <div v-if="loading" class="text-muted">불러오는 중...</div>
+    <div v-if="loading && !items.length" class="text-muted">불러오는 중...</div>
     <div v-else-if="!filtered.length" class="empty-state">
       <i class="fas fa-receipt fa-2x text-muted mb-2"></i>
       <p class="text-muted">표시할 거래가 없습니다</p>
@@ -368,11 +368,13 @@ async function doDelete() {
   } finally { saving.value = false }
 }
 
-async function reload() {
+async function reload({ resetList = false } = {}) {
   loading.value = true
-  // 이전 달 거래 잔상 제거
-  items.value = []
-  livingStatus.value = null
+  // 월 전환처럼 컨텍스트가 완전히 바뀔 때만 잔상 제거 (저장 후 reload 시엔 유지 → 스크롤 보존)
+  if (resetList) {
+    items.value = []
+    livingStatus.value = null
+  }
   try {
     const [txs, accs, pays, lbs] = await Promise.all([
       listTransactions({ ym: ym.value }),
@@ -392,7 +394,7 @@ function shiftMonth(delta) {
   if (m < 1)  { m = 12; y-- }
   if (m > 12) { m = 1;  y++ }
   year.value = y; month.value = m
-  reload()
+  reload({ resetList: true })
 }
 
 onMounted(reload)
