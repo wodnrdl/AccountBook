@@ -51,8 +51,6 @@
     <div class="main-content" @click="sidebarOpen = false">
       <router-view />
     </div>
-
-    <FabScrollTop />
   </div>
 </template>
 
@@ -61,7 +59,6 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabase.js'
 import { applyRecurringTransfers } from '../../lib/api_v2.js'
-import FabScrollTop from './components/FabScrollTop.vue'
 
 const router = useRouter()
 const sidebarOpen = ref(false)

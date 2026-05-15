@@ -15,9 +15,8 @@ defineEmits(['click'])
 <style scoped>
 .fab-add {
   position: fixed;
+  right: calc(1rem + env(safe-area-inset-right, 0px));
   bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 1040;
   background: #5e72e4;
   color: #fff;
@@ -34,11 +33,11 @@ defineEmits(['click'])
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .fab-add:hover {
-  transform: translateX(-50%) translateY(-2px);
+  transform: translateY(-2px);
   box-shadow: 0 12px 24px rgba(94, 114, 228, 0.5);
 }
 .fab-add:active {
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 .fab-add i { font-size: 0.95rem; }
 </style>
