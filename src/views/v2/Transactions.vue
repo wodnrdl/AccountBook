@@ -37,6 +37,28 @@
       </div>
     </div>
 
+    <!-- 계좌별 사용/입금 -->
+    <div v-if="accountBreakdown.length" class="card section mb-3">
+      <div class="section-head">
+        <div class="section-title"><i class="fas fa-wallet text-primary"></i> 이번달 계좌별 사용/입금</div>
+      </div>
+      <ul class="acc-breakdown">
+        <li v-for="a in accountBreakdown" :key="a.id" class="clickable" @click="openAccountHistory(a.id)">
+          <span class="acc-name">
+            <span v-if="a.is_liability" class="badge bg-danger me-1">부채</span>
+            <span class="badge bg-light text-dark me-1">{{ a.owner }}</span>
+            {{ a.name }}
+          </span>
+          <span class="acc-amts">
+            <strong :class="(a.income - a.expense) >= 0 ? 'text-success' : 'text-danger'">
+              {{ (a.income - a.expense) >= 0 ? '+' : '-' }}{{ won(Math.abs(a.income - a.expense)) }}
+            </strong>
+            <i class="fas fa-chevron-right text-muted ms-2"></i>
+          </span>
+        </li>
+      </ul>
+    </div>
+
     <!-- 카테고리 통계 -->
     <div v-if="categoryStats.length" class="card section mb-3">
       <div class="section-head">
@@ -197,6 +219,8 @@
       </template>
     </Modal>
 
+    <AccountHistoryModal v-model="historyOpen" :account="historyAccount" :initial-ym="ym" />
+
     <FabAdd label="거래 추가" @click="openCreate" />
   </div>
 </template>
@@ -211,6 +235,7 @@ import {
 } from '../../lib/api_v2.js'
 import Modal from './components/Modal.vue'
 import FabAdd from './components/FabAdd.vue'
+import AccountHistoryModal from './components/AccountHistoryModal.vue'
 
 const SUGGEST_EXPENSE = ['식비', '카페', '교통', '쇼핑', '생활', '의료', '여가', '교육', '통신', '미용', '기타']
 const SUGGEST_INCOME  = ['보너스', '부수입', '환급', '용돈', '기타']
@@ -220,10 +245,20 @@ const year  = ref(today.getFullYear())
 const month = ref(today.getMonth() + 1)
 const ym = computed(() => `${year.value}-${String(month.value).padStart(2, '0')}`)
 
-const items = ref([])
+const items = ref([])            // 거래 목록 (단발 거래만, 자동거래 제외)
 const accounts = ref([])         // 모든 계좌 (목록의 계좌명 표시용)
 const paymentAccounts = ref([])  // tx_enabled=true 만 (모달 셀렉트용)
 const livingStatus = ref(null)   // 생활비 봉투 carry-over 정보
+
+// 계좌별 거래내역 모달
+const historyOpen = ref(false)
+const historyAccount = ref(null)
+function openAccountHistory(accountId) {
+  const a = accounts.value.find(x => x.id === accountId)
+  if (!a) return
+  historyAccount.value = a
+  historyOpen.value = true
+}
 const loading = ref(true)
 const saving = ref(false)
 
@@ -262,6 +297,32 @@ const availableCategories = computed(() => {
   const set = new Set()
   for (const t of items.value) set.add(t.category || '미분류')
   return [...set].sort()
+})
+
+// 계좌별 사용/입금 합계 (단발 거래만, 자동거래 + 봉투 제외)
+const accountBreakdown = computed(() => {
+  const envelopeId = accounts.value.find(a => a.tx_default)?.id
+  const map = {}
+  for (const t of items.value) {
+    if (!t.account_id) continue
+    if (t.account_id === envelopeId) continue
+    const k = t.account_id
+    if (!map[k]) map[k] = { id: k, income: 0, expense: 0 }
+    if (t.kind === 'income')       map[k].income  += Number(t.amount)
+    else if (t.kind === 'expense') map[k].expense += Number(t.amount)
+  }
+  return Object.values(map)
+    .map(b => {
+      const a = accounts.value.find(x => x.id === b.id)
+      return {
+        ...b,
+        name: a?.name || '알 수 없음',
+        owner: a?.owner || '',
+        is_liability: !!a?.is_liability,
+      }
+    })
+    .filter(b => b.expense > 0 || b.income > 0)
+    .sort((a, b) => b.expense - a.expense || b.income - a.income)
 })
 
 const categoryStats = computed(() => {
@@ -422,6 +483,21 @@ onMounted(reload)
 .stat.net.neg .stat-value { color: #f5365c; }
 .stat-label { font-size: 0.72rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }
 .stat-value { font-size: 1.15rem; font-weight: 700; color: #32325d; }
+
+/* 계좌별 사용/입금 */
+.acc-breakdown { list-style: none; padding: 0; margin: 0; }
+.acc-breakdown li {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px dashed #f0f3f7;
+  font-size: 0.92rem;
+  transition: background 0.12s ease;
+}
+.acc-breakdown li:last-child { border-bottom: none; }
+.acc-breakdown li.clickable { cursor: pointer; border-radius: 6px; }
+.acc-breakdown li.clickable:hover { background: #f0f3f7; }
+.acc-breakdown .acc-name { flex: 1 1 auto; min-width: 0; color: #32325d; font-weight: 500; }
+.acc-breakdown .acc-amts { flex: 0 0 auto; font-weight: 600; display: flex; align-items: center; }
 
 /* 카테고리 통계 */
 .cat-stats { display: flex; flex-direction: column; gap: 0.5rem; }

@@ -176,13 +176,22 @@
 
     <!-- 이용 내역 모달 -->
     <Modal v-model="historyOpen" :title="historyTarget ? `${historyTarget.name} 이용 내역` : '이용 내역'" size="md">
-      <div v-if="historyTarget" class="hist-summary mb-2">
-        <span class="badge bg-light text-dark me-1">{{ typeLabel(historyTarget.type) }}</span>
-        <span class="text-muted small me-2">{{ historyTarget.owner }}</span>
-        <strong>{{ won(historyTarget.balance) }}</strong>
+      <div v-if="historyTarget" class="hist-summary mb-2 d-flex align-items-center flex-wrap gap-2">
+        <span class="badge bg-light text-dark">{{ typeLabel(historyTarget.type) }}</span>
+        <span class="text-muted small">{{ historyTarget.owner }}</span>
+        <strong class="ms-auto">{{ won(historyTarget.balance) }}</strong>
+      </div>
+      <div class="hist-month-picker mb-2">
+        <button class="btn btn-light btn-sm" :disabled="historyLoading" @click="historyShiftMonth(-1)">
+          <i class="fas fa-chevron-left"></i>
+        </button>
+        <span class="ym-label">{{ historyYm }}</span>
+        <button class="btn btn-light btn-sm" :disabled="historyLoading" @click="historyShiftMonth(1)">
+          <i class="fas fa-chevron-right"></i>
+        </button>
       </div>
       <div v-if="historyLoading" class="text-muted small">불러오는 중...</div>
-      <div v-else-if="!historyItems.length" class="text-muted small text-center py-3">거래 내역 없음</div>
+      <div v-else-if="!historyItems.length" class="text-muted small text-center py-3">이 달 거래 내역 없음</div>
       <ul v-else class="hist-list">
         <li v-for="t in historyItems" :key="t.id">
           <div class="hist-row">
@@ -399,14 +408,39 @@ const historyOpen = ref(false)
 const historyTarget = ref(null)
 const historyItems = ref([])
 const historyLoading = ref(false)
+const historyYm = ref(ymNow())
+
+const historyUsed = computed(() =>
+  historyItems.value.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0)
+)
+const historyIncome = computed(() =>
+  historyItems.value.filter(t => t.kind === 'income').reduce((s, t) => s + Number(t.amount || 0), 0)
+)
+
+async function loadHistory() {
+  if (!historyTarget.value) return
+  historyLoading.value = true
+  try {
+    historyItems.value = await listTransactions({
+      accountId: historyTarget.value.id,
+      ym: historyYm.value,
+    })
+  } finally { historyLoading.value = false }
+}
+
 async function openHistory(a) {
   historyTarget.value = a
   historyItems.value = []
+  historyYm.value = ymNow()
   historyOpen.value = true
-  historyLoading.value = true
-  try {
-    historyItems.value = await listTransactions({ accountId: a.id, includeRecurring: true, limit: 200 })
-  } finally { historyLoading.value = false }
+  await loadHistory()
+}
+
+function historyShiftMonth(delta) {
+  const [y, m] = historyYm.value.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  historyYm.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  loadHistory()
 }
 
 // 삭제
@@ -498,6 +532,14 @@ onMounted(reload)
 
 .hist-summary {
   padding: 0.5rem 0.75rem; background: #f9fbfd; border-radius: 8px;
+}
+.hist-month-picker {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.4rem 0.5rem; background: #fff; border: 1px solid #e9ecef;
+  border-radius: 8px;
+}
+.hist-month-picker .ym-label {
+  font-weight: 600; min-width: 5.5rem; text-align: center; color: #32325d;
 }
 .hist-list { list-style: none; padding: 0; margin: 0; }
 .hist-list li {

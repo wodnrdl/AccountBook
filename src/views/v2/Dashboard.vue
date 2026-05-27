@@ -26,9 +26,9 @@
           <div class="kpi-label">이번 달 수입</div>
           <div class="kpi-value">
             <template v-if="loading"><span class="skel"/></template>
-            <template v-else>{{ wonShort(d.recurring.income) }}<span class="unit">원</span></template>
+            <template v-else>{{ fmt(d.recurring.income) }}<span class="unit">원</span></template>
           </div>
-          <div class="kpi-sub">고정 + 단발 {{ wonShort(d.recurring.income + d.tx.income) }}원</div>
+          <div class="kpi-sub">고정 + 단발 {{ fmt(d.recurring.income + d.tx.income) }}원</div>
         </div>
       </div>
       <div class="col-6 col-lg-3">
@@ -36,7 +36,7 @@
           <div class="kpi-label">이번 달 고정지출</div>
           <div class="kpi-value">
             <template v-if="loading"><span class="skel"/></template>
-            <template v-else>{{ wonShort(d.recurring.totalOut) }}<span class="unit">원</span></template>
+            <template v-else>{{ fmt(d.recurring.totalOut) }}<span class="unit">원</span></template>
           </div>
           <div class="kpi-sub">저축·이체·보험·상환 포함</div>
         </div>
@@ -46,9 +46,9 @@
           <div class="kpi-label">가용 잉여</div>
           <div class="kpi-value">
             <template v-if="loading"><span class="skel"/></template>
-            <template v-else>{{ wonShort(d.recurring.surplus) }}<span class="unit">원</span></template>
+            <template v-else>{{ fmt(d.recurring.surplus) }}<span class="unit">원</span></template>
           </div>
-          <div class="kpi-sub">수입 − 고정지출</div>
+          <div class="kpi-sub">수입(고정+단발) − 고정지출<br>− 생활비 외 지출</div>
         </div>
       </div>
       <div class="col-6 col-lg-3">
@@ -105,6 +105,31 @@
       <div v-if="living.target && (living.carryOver + living.income) > 0" class="lb-bar-label small text-muted mt-1">
         이번달 가용({{ won(living.carryOver + living.income) }}) 대비 {{ barPct }}% 사용
       </div>
+    </div>
+
+    <!-- 계좌별 사용/입금 (단발 거래만) -->
+    <div v-if="accountUsageList.length" class="card section mb-3">
+      <div class="section-head">
+        <div>
+          <div class="section-title"><i class="fas fa-wallet text-primary"></i> 이번달 계좌 사용/입금</div>
+          <div class="section-sub text-muted">거래 등록한 단발 거래 합계 (자동거래 제외)</div>
+        </div>
+      </div>
+      <ul class="acc-usage">
+        <li v-for="a in accountUsageList" :key="a.id" class="clickable" @click="openAccountHistory(a.id)">
+          <span class="acc-info">
+            <span v-if="a.is_liability" class="badge bg-danger me-1">부채</span>
+            <span class="badge bg-light text-dark me-1">{{ a.owner }}</span>
+            <span class="acc-name">{{ a.name }}</span>
+          </span>
+          <span class="acc-amts">
+            <strong :class="(a.income - a.expense) >= 0 ? 'text-success' : 'text-danger'">
+              {{ (a.income - a.expense) >= 0 ? '+' : '-' }}{{ won(Math.abs(a.income - a.expense)) }}
+            </strong>
+            <i class="fas fa-chevron-right text-muted ms-2"></i>
+          </span>
+        </li>
+      </ul>
     </div>
 
     <!-- 자산 / 부채 -->
@@ -170,7 +195,7 @@
       <div class="section-head">
         <div>
           <div class="section-title"><i class="fas fa-stream text-primary"></i> 이번 달 고정 흐름</div>
-          <div class="section-total">{{ recurring.length }}건 · 합계 {{ won(d.recurring.totalOut + d.recurring.income) }}</div>
+          <div class="section-total">{{ recurring.length }}건</div>
         </div>
         <router-link to="/v2/recurring" class="btn btn-sm btn-outline-primary">관리</router-link>
       </div>
@@ -194,6 +219,8 @@
         </div>
       </div>
     </div>
+
+    <AccountHistoryModal v-model="historyOpen" :account="historyAccount" :initial-ym="ym" />
   </div>
 </template>
 
@@ -205,12 +232,16 @@ import {
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
 import Donut from './components/Donut.vue'
+import AccountHistoryModal from './components/AccountHistoryModal.vue'
 
 const OWNER_COLORS = {
   '재욱':   '#5e72e4',
   '공주님': '#f5365c',
   '공동':   '#2dce89',
 }
+
+// 3자리 콤마 + 원 단위 (요약 KPI 용)
+const fmt = (n) => Number(n || 0).toLocaleString('ko-KR')
 
 const today = new Date()
 const year  = ref(today.getFullYear())
@@ -229,9 +260,26 @@ function emptyDashboard() {
     recurring: { income: 0, transfer: 0, expense: 0, insurance: 0, loan_payment: 0, totalOut: 0, surplus: 0 },
     tx: { income: 0, expense: 0 },
     accounts: [],
+    accountUsage: [],
     assetTotal: 0, liabilityTotal: 0, netWorth: 0,
     byOwner: { '재욱': 0, '공주님': 0, '공동': 0 },
   }
+}
+
+// 생활비 봉투는 별도 카드(생활비 봉투 섹션)로 표시하므로 breakdown 에서 제외
+// (사실 api 의 accountUsage 단계에서 이미 봉투가 빠져있지만 방어적으로 한 번 더 필터)
+const accountUsageList = computed(() =>
+  (d.value.accountUsage || []).filter(a => !a.tx_default)
+)
+
+// 계좌별 거래내역 모달
+const historyOpen = ref(false)
+const historyAccount = ref(null)
+function openAccountHistory(accountId) {
+  const a = (d.value.accounts || []).find(x => x.id === accountId)
+  if (!a) return
+  historyAccount.value = a
+  historyOpen.value = true
 }
 
 const ownerSegments = computed(() => {
@@ -393,6 +441,22 @@ onMounted(load)
 }
 .rec-list li:last-child { border-bottom: none; }
 .rec-name { color: #32325d; }
+
+/* 계좌별 사용/입금 */
+.acc-usage { list-style: none; padding: 0; margin: 0; }
+.acc-usage li {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px dashed #f0f3f7;
+  font-size: 0.92rem;
+  transition: background 0.12s ease;
+}
+.acc-usage li:last-child { border-bottom: none; }
+.acc-usage li.clickable { cursor: pointer; border-radius: 6px; }
+.acc-usage li.clickable:hover { background: #f0f3f7; }
+.acc-usage .acc-info { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.35rem; }
+.acc-usage .acc-name { color: #32325d; font-weight: 500; }
+.acc-usage .acc-amts { flex: 0 0 auto; font-weight: 600; display: flex; align-items: center; }
 
 /* 생활비 봉투 */
 .living .lb-label { font-size: 0.72rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }

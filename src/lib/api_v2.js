@@ -266,19 +266,8 @@ function txDelta(t) {
   return (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
 }
 
-// 거래용(tx_default) 계좌의 수동 지출은 자산 잔액 미반영 — 생활비 봉투 used 로만 추적
-// 캐시된 accounts 에서 lookup (별도 SELECT 없음)
-async function shouldSkipBalanceSync(t) {
-  if (!t || t.kind !== 'expense' || t.recurring_id) return false
-  if (!t.account_id) return false
-  const accs = await getAccountsCached()
-  const a = accs.find(x => x.id === t.account_id)
-  return !!a?.tx_default
-}
-
 async function applyTxBalance(t, delta) {
   if (!t?.account_id || !delta) return
-  if (await shouldSkipBalanceSync(t)) return
   await adjustAccountBalance(t.account_id, delta)
 }
 
@@ -487,10 +476,10 @@ export async function fetchLivingBudgetStatus(ym = ymNow(), opts = {}) {
 // ===== 대시보드 요약 =====
 // 한 달 기준 수입/지출/저축/보험/상환 합계 + 자산총합/부채/소유자별 자산
 export async function fetchDashboard(ym = ymNow()) {
-  const [accs, recs, txs] = await Promise.all([
+  const [accs, recs, allTxs] = await Promise.all([
     listAccounts(),
     listRecurring({ ym, activeOnly: true }),
-    listTransactions({ ym }),
+    listTransactions({ ym, includeRecurring: true }),
   ])
 
   const sumKind = (k) => recs.filter(r => r.kind === k).reduce((s, r) => s + Number(r.amount), 0)
@@ -502,10 +491,43 @@ export async function fetchDashboard(ym = ymNow()) {
     loan_payment: sumKind('loan_payment'),
   }
   recurring.totalOut = recurring.transfer + recurring.expense + recurring.insurance + recurring.loan_payment
-  recurring.surplus  = recurring.income - recurring.totalOut
 
-  const txIncome  = txs.filter(t => t.kind === 'income').reduce((s, t) => s + Number(t.amount), 0)
-  const txExpense = txs.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+  // 단발(수동) 거래만으로 tx 합계 계산
+  // 봉투(tx_default) 계좌 거래는 별도 섹션(생활비 봉투)에서 관리하므로 제외
+  // — 봉투의 v1 자동 충전 income 거래는 recurring_id 가 NULL 이라 그냥 두면 단발 수입에 중복 계상됨
+  // — 봉투에서 쓴 단발 지출은 transfer 로 이미 고정지출에 포함되어 있어 중복 차감 방지
+  const envelopeId = accs.find(a => a.tx_default)?.id
+  const nonEnvelope = (t) => t.account_id !== envelopeId
+  const manualTxs = allTxs.filter(t => !t.recurring_id && nonEnvelope(t))
+  const txIncome  = manualTxs.filter(t => t.kind === 'income' ).reduce((s, t) => s + Number(t.amount), 0)
+  const txExpense = manualTxs.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+
+  // 가용잉여 = 이번달 수입(고정+단발) − 고정지출(저축/이체 포함) − 단발 지출
+  // ※ 봉투 거래는 manualTxs 단계에서 이미 제외됨
+  recurring.surplus = (recurring.income + txIncome) - recurring.totalOut - txExpense
+
+  // 계좌별 사용/입금 (단발 거래만, 자동거래 제외)
+  const byAccountMap = {}
+  for (const t of manualTxs) {
+    if (!t.account_id) continue
+    const k = t.account_id
+    if (!byAccountMap[k]) byAccountMap[k] = { id: k, income: 0, expense: 0 }
+    if (t.kind === 'income')       byAccountMap[k].income  += Number(t.amount)
+    else if (t.kind === 'expense') byAccountMap[k].expense += Number(t.amount)
+  }
+  const accountUsage = Object.values(byAccountMap)
+    .map(b => {
+      const a = accs.find(x => x.id === b.id)
+      return {
+        ...b,
+        name: a?.name || '알 수 없음',
+        owner: a?.owner || '',
+        is_liability: !!a?.is_liability,
+        tx_default: !!a?.tx_default,
+      }
+    })
+    .filter(b => b.expense > 0 || b.income > 0)
+    .sort((a, b) => b.expense - a.expense || b.income - a.income)
 
   const assets = accs.filter(a => !a.is_liability)
   const liabilities = accs.filter(a => a.is_liability)
@@ -521,6 +543,7 @@ export async function fetchDashboard(ym = ymNow()) {
     recurring,
     tx: { income: txIncome, expense: txExpense },
     accounts: accs,
+    accountUsage,
     assetTotal,
     liabilityTotal,
     netWorth: assetTotal - liabilityTotal,
