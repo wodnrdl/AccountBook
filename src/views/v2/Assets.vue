@@ -58,10 +58,10 @@
         </div>
         <div class="row g-2">
           <div v-for="a in group" :key="a.id" class="col-12 col-md-6 col-xl-4">
-            <div class="card account-card"
-                 :class="{ liability: a.is_liability, clickable: a.tx_enabled }"
-                 :title="a.tx_enabled ? '클릭하여 이용 내역 보기' : ''"
-                 @click="a.tx_enabled && openHistory(a)">
+            <div class="card account-card clickable"
+                 :class="{ liability: a.is_liability }"
+                 title="클릭하여 이용 내역 보기"
+                 @click="openHistory(a)">
               <div class="ac-head">
                 <div class="ac-tags">
                   <span class="badge bg-light text-dark me-1">{{ typeLabel(a.type) }}</span>
@@ -196,7 +196,10 @@
         <li v-for="t in historyItems" :key="t.id">
           <div class="hist-row">
             <span class="hist-date small text-muted">{{ t.date }}</span>
-            <span class="hist-cat">{{ t.category || '미분류' }}</span>
+            <span class="hist-cat">
+              {{ t.category || '미분류' }}
+              <span v-if="t.recurring_id" class="badge bg-info text-dark ms-1">자동</span>
+            </span>
             <strong :class="t.kind === 'income' ? 'text-success' : 'text-danger'">
               {{ t.kind === 'income' ? '+' : '-' }}{{ won(t.amount) }}
             </strong>
@@ -424,6 +427,7 @@ async function loadHistory() {
     historyItems.value = await listTransactions({
       accountId: historyTarget.value.id,
       ym: historyYm.value,
+      includeRecurring: true,
     })
   } finally { historyLoading.value = false }
 }

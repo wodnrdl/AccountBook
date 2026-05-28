@@ -92,6 +92,30 @@ CREATE TRIGGER trg_recurring_items_updated_at
   BEFORE UPDATE ON recurring_items
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- 거래 ↔ 계좌 잔액 동기화 (INSERT/UPDATE/DELETE 시 원자적 갱신)
+CREATE OR REPLACE FUNCTION tx_apply_balance()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND NEW.account_id IS NOT NULL THEN
+    UPDATE accounts
+       SET balance = balance + (CASE WHEN NEW.kind = 'income' THEN NEW.amount ELSE -NEW.amount END)
+     WHERE id = NEW.account_id;
+  END IF;
+  IF (TG_OP = 'DELETE' OR TG_OP = 'UPDATE') AND OLD.account_id IS NOT NULL THEN
+    UPDATE accounts
+       SET balance = balance - (CASE WHEN OLD.kind = 'income' THEN OLD.amount ELSE -OLD.amount END)
+     WHERE id = OLD.account_id;
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_tx_apply_balance ON transactions;
+CREATE TRIGGER trg_tx_apply_balance
+  AFTER INSERT OR UPDATE OR DELETE ON transactions
+  FOR EACH ROW EXECUTE FUNCTION tx_apply_balance();
+
 -- RLS (기존 정책과 동일하게 anon 전체 허용)
 ALTER TABLE accounts          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE balance_snapshots ENABLE ROW LEVEL SECURITY;

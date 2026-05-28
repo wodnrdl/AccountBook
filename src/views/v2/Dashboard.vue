@@ -56,7 +56,7 @@
           <div class="kpi-label">순자산</div>
           <div class="kpi-value">
             <template v-if="loading"><span class="skel"/></template>
-            <template v-else>{{ wonShort(d.netWorth) }}<span class="unit">원</span></template>
+            <template v-else>{{ wonEokMan(d.netWorth) }}<span class="unit">원</span></template>
           </div>
           <div class="kpi-sub">자산 − 부채</div>
         </div>
@@ -227,7 +227,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  fetchDashboard, listRecurring, won, wonShort, ymNow,
+  fetchDashboard, listRecurring, won, wonShort, wonEokMan, ymNow,
   fetchLivingBudgetStatus,
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'

@@ -30,6 +30,17 @@ export const wonShort = (n) => {
   if (v >= 10000)     return (v / 10000).toFixed(0) + '만'
   return v.toLocaleString('ko-KR')
 }
+// 억/만 단위 한글 표기 (단위 '원'은 호출부에서 붙임). 예: 135,151,414 → '1억 3515만', 100,000,000 → '1억 0000만'
+export const wonEokMan = (n) => {
+  let v = Math.round(Number(n || 0))
+  const sign = v < 0 ? '-' : ''
+  v = Math.abs(v)
+  const eok = Math.floor(v / 100000000)
+  const man = Math.floor((v % 100000000) / 10000)
+  if (eok > 0) return `${sign}${eok}억 ${String(man).padStart(4, '0')}만`
+  if (man > 0) return `${sign}${man}만`
+  return `${sign}${v.toLocaleString('ko-KR')}`
+}
 export const ymNow = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -255,45 +266,26 @@ export async function listTransactions({ ym = null, owner = null, kind = null, i
   return data || []
 }
 
-// 거래 → 계좌잔액 자동 동기화 (income +, expense -)
-async function adjustAccountBalance(accountId, delta) {
-  if (!accountId || !delta) return
-  const { error } = await supabase.rpc('increment_account_balance', { p_account_id: accountId, p_delta: delta })
-  if (error) throw error
-  invalidateAccounts()
-}
-function txDelta(t) {
-  return (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
-}
-
-async function applyTxBalance(t, delta) {
-  if (!t?.account_id || !delta) return
-  await adjustAccountBalance(t.account_id, delta)
-}
-
+// 거래 ↔ 계좌잔액 동기화는 DB 트리거(trg_tx_apply_balance)가 원자적으로 처리한다.
+// 클라이언트는 거래를 쓴 뒤 계좌 캐시만 무효화해 다음 조회에서 새 잔액을 읽는다.
 export async function createTransaction(payload) {
   const { data, error } = await supabase.from('transactions').insert(payload).select().single()
   if (error) throw error
-  await applyTxBalance(data, txDelta(data))
+  invalidateAccounts()
   return data
 }
 
 export async function updateTransaction(id, fields) {
-  const { data: oldRow } = await supabase.from('transactions').select('*').eq('id', id).single()
   const { data, error } = await supabase.from('transactions').update(fields).eq('id', id).select().single()
   if (error) throw error
-  // 이전 영향 되돌리기
-  if (oldRow) await applyTxBalance(oldRow, -txDelta(oldRow))
-  // 새 영향 적용
-  await applyTxBalance(data, txDelta(data))
+  invalidateAccounts()
   return data
 }
 
 export async function deleteTransaction(id) {
-  const { data: oldRow } = await supabase.from('transactions').select('*').eq('id', id).single()
   const { error } = await supabase.from('transactions').delete().eq('id', id)
   if (error) throw error
-  if (oldRow) await applyTxBalance(oldRow, -txDelta(oldRow))
+  invalidateAccounts()
 }
 
 // ===== living_budget (생활비 봉투) =====

@@ -29,11 +29,6 @@
         </li>
 
         <li class="nav-item mt-auto" style="border-top: 1px solid #e9ecef; padding-top: 0.5rem;">
-          <router-link class="nav-link text-muted" to="/home" @click="sidebarOpen = false">
-            <i class="fas fa-undo"></i> 기존 화면
-          </router-link>
-        </li>
-        <li class="nav-item">
           <a class="nav-link" href="#" @click.prevent="logout">
             <i class="fas fa-sign-out-alt"></i> 로그아웃
           </a>

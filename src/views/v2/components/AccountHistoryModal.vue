@@ -20,7 +20,10 @@
       <li v-for="t in items" :key="t.id">
         <div class="hist-row">
           <span class="hist-date small text-muted">{{ t.date }}</span>
-          <span class="hist-cat">{{ t.category || '미분류' }}</span>
+          <span class="hist-cat">
+            {{ t.category || '미분류' }}
+            <span v-if="t.recurring_id" class="badge bg-info text-dark ms-1">자동</span>
+          </span>
           <strong :class="t.kind === 'income' ? 'text-success' : 'text-danger'">
             {{ t.kind === 'income' ? '+' : '-' }}{{ won(t.amount) }}
           </strong>
@@ -71,6 +74,7 @@ async function load() {
     items.value = await listTransactions({
       accountId: props.account.id,
       ym: ym.value,
+      includeRecurring: true,
     })
   } finally { loading.value = false }
 }
