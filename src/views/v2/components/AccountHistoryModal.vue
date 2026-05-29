@@ -46,6 +46,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   account:    { type: Object,  default: null },
   initialYm:  { type: String,  default: '' },
+  includeRecurring: { type: Boolean, default: true },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -74,7 +75,7 @@ async function load() {
     items.value = await listTransactions({
       accountId: props.account.id,
       ym: ym.value,
-      includeRecurring: true,
+      includeRecurring: props.includeRecurring,
     })
   } finally { loading.value = false }
 }

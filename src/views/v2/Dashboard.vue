@@ -48,7 +48,7 @@
             <template v-if="loading"><span class="skel"/></template>
             <template v-else>{{ fmt(d.recurring.surplus) }}<span class="unit">원</span></template>
           </div>
-          <div class="kpi-sub">수입(고정+단발) − 고정지출<br>− 생활비 외 지출</div>
+          <div class="kpi-sub">수입(고정+총수입 단발) − 고정지출<br>− 총수입 단발지출</div>
         </div>
       </div>
       <div class="col-6 col-lg-3">
@@ -220,7 +220,7 @@
       </div>
     </div>
 
-    <AccountHistoryModal v-model="historyOpen" :account="historyAccount" :initial-ym="ym" />
+    <AccountHistoryModal v-model="historyOpen" :account="historyAccount" :initial-ym="ym" :include-recurring="false" />
   </div>
 </template>
 

@@ -494,9 +494,15 @@ export async function fetchDashboard(ym = ymNow()) {
   const txIncome  = manualTxs.filter(t => t.kind === 'income' ).reduce((s, t) => s + Number(t.amount), 0)
   const txExpense = manualTxs.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount), 0)
 
-  // 가용잉여 = 이번달 수입(고정+단발) − 고정지출(저축/이체 포함) − 단발 지출
-  // ※ 봉투 거래는 manualTxs 단계에서 이미 제외됨
-  recurring.surplus = (recurring.income + txIncome) - recurring.totalOut - txExpense
+  // 가용잉여 = 고정수입 + 총수입 계좌 단발수입 − 고정지출(저축/이체 포함) − 총수입 계좌 단발지출
+  // 총수입 = 자동 수입(월급)이 입금되는 계좌. 상품권 등 다른 계좌의 단발 거래는 잉여 계산에서 제외한다.
+  const mainAccountId = recs
+    .filter(r => r.kind === 'income' && r.target_account_id)
+    .sort((a, b) => Number(b.amount) - Number(a.amount))[0]?.target_account_id ?? null
+  const mainSingle = manualTxs.filter(t => t.account_id === mainAccountId)
+  const mainIncome  = mainSingle.filter(t => t.kind === 'income' ).reduce((s, t) => s + Number(t.amount), 0)
+  const mainExpense = mainSingle.filter(t => t.kind === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+  recurring.surplus = (recurring.income + mainIncome) - recurring.totalOut - mainExpense
 
   // 계좌별 사용/입금 (단발 거래만, 자동거래 제외)
   const byAccountMap = {}
