@@ -17,24 +17,19 @@
     </div>
 
     <!-- 요약 -->
-    <div class="row g-2 mb-3">
-      <div class="col-6 col-md-3">
-        <div class="card stat carry"><div class="stat-label">이월</div>
-          <div class="stat-value" :class="totals.carryOver < 0 ? 'text-danger' : ''">{{ won(totals.carryOver) }}</div></div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="card stat income"><div class="stat-label">이번달 수입</div>
-          <div class="stat-value text-success">+{{ won(totals.income) }}</div></div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="card stat expense"><div class="stat-label">이번달 지출</div>
-          <div class="stat-value text-danger">-{{ won(totals.expense) }}</div></div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="card stat net" :class="{ neg: totals.remaining < 0 }">
-          <div class="stat-label">잔여 (이월포함)</div>
-          <div class="stat-value">{{ won(totals.remaining) }}</div></div>
-      </div>
+    <div class="stats-grid mb-3">
+      <div class="card stat carry"><div class="stat-label">이월</div>
+        <div class="stat-value" :class="totals.carryOver < 0 ? 'text-danger' : ''">{{ won(totals.carryOver) }}</div></div>
+      <div class="card stat income"><div class="stat-label">이번달 수입</div>
+        <div class="stat-value text-success">+{{ won(totals.income) }}</div></div>
+      <div class="card stat expense"><div class="stat-label">이번달 지출</div>
+        <div class="stat-value text-danger">-{{ won(totals.expense) }}</div></div>
+      <div class="card stat net" :class="{ neg: totals.remaining < 0 }">
+        <div class="stat-label">생활비 잔여</div>
+        <div class="stat-value">{{ won(totals.remaining) }}</div></div>
+      <div class="card stat surplus" :class="{ neg: surplus < 0 }">
+        <div class="stat-label">총수입 잔여</div>
+        <div class="stat-value">{{ won(surplus) }}</div></div>
     </div>
 
     <!-- 계좌별 사용/입금 -->
@@ -181,9 +176,9 @@
       </div>
       <div class="mb-2">
         <label class="form-label small">계좌</label>
-        <select v-if="paymentAccounts.length" v-model="form.account_id" class="form-select">
+        <select v-if="selectablePaymentAccounts.length" v-model="form.account_id" class="form-select">
           <option :value="null">— 없음 —</option>
-          <option v-for="a in paymentAccounts" :key="a.id" :value="a.id">
+          <option v-for="a in selectablePaymentAccounts" :key="a.id" :value="a.id">
             {{ a.tx_default ? '⭐ ' : '' }}{{ a.owner }} · {{ a.name }}
           </option>
         </select>
@@ -229,8 +224,8 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   listTransactions, createTransaction, updateTransaction, deleteTransaction,
-  listAccounts, listPaymentAccounts,
-  fetchLivingBudgetStatus,
+  listPaymentAccounts,
+  fetchDashboard,
   won, OWNERS,
 } from '../../lib/api_v2.js'
 import Modal from './components/Modal.vue'
@@ -249,6 +244,7 @@ const items = ref([])            // 거래 목록 (단발 거래만, 자동거�
 const accounts = ref([])         // 모든 계좌 (목록의 계좌명 표시용)
 const paymentAccounts = ref([])  // tx_enabled=true 만 (모달 셀렉트용)
 const livingStatus = ref(null)   // 생활비 봉투 carry-over 정보
+const surplus = ref(0)           // 대시보드 가용잉여 (잔여 - 생활비 외)
 
 // 계좌별 거래내역 모달
 const historyOpen = ref(false)
@@ -262,6 +258,10 @@ function openAccountHistory(accountId) {
 const loading = ref(true)
 const saving = ref(false)
 
+// 잔액 0원 계좌는 셀렉트에서 숨김 (봉투는 항상 포함)
+const selectablePaymentAccounts = computed(() =>
+  paymentAccounts.value.filter(a => a.tx_default || Number(a.balance) !== 0)
+)
 const defaultPaymentId = computed(() => paymentAccounts.value.find(a => a.tx_default)?.id || null)
 
 const filters = ref({ kind: 'all', owner: 'all', category: 'all' })
@@ -368,7 +368,7 @@ function emptyForm() {
     kind: 'expense',
     amount: 0,
     category: '',
-    owner: '재욱',
+    owner: '공동',
     account_id: defaultPaymentId.value,
     memo: '',
   }
@@ -437,16 +437,18 @@ async function reload({ resetList = false } = {}) {
     livingStatus.value = null
   }
   try {
-    const [txs, accs, pays, lbs] = await Promise.all([
+    // fetchDashboard 가 accounts + living(생활비 잔여) + surplus 를 한 번에 반환
+    // → listAccounts / fetchLivingBudgetStatus 중복 호출 제거
+    const [txs, pays, dash] = await Promise.all([
       listTransactions({ ym: ym.value }),
-      listAccounts(),
-      listPaymentAccounts(),
-      fetchLivingBudgetStatus(ym.value),
+      listPaymentAccounts(),           // getAccountsCached 재사용 → 추가 쿼리 없음
+      fetchDashboard(ym.value),
     ])
     items.value = txs
-    accounts.value = accs
+    accounts.value = dash.accounts
     paymentAccounts.value = pays
-    livingStatus.value = lbs
+    livingStatus.value = dash.living
+    surplus.value = dash.recurring.surplus
   } finally { loading.value = false }
 }
 
@@ -475,12 +477,21 @@ onMounted(reload)
   border-left: 4px solid #5e72e4;
   height: 100%;
 }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+.stats-grid > .stat { height: 100%; }
 .stat.carry   { border-left-color: #8898aa; }
 .stat.income  { border-left-color: #2dce89; }
 .stat.expense { border-left-color: #f5365c; }
 .stat.net     { border-left-color: #11cdef; }
 .stat.net.neg { border-left-color: #f5365c; }
 .stat.net.neg .stat-value { color: #f5365c; }
+.stat.surplus     { border-left-color: #5e72e4; }
+.stat.surplus.neg { border-left-color: #f5365c; }
+.stat.surplus.neg .stat-value { color: #f5365c; }
 .stat-label { font-size: 0.72rem; color: #8898aa; font-weight: 600; text-transform: uppercase; }
 .stat-value { font-size: 1.15rem; font-weight: 700; color: #32325d; }
 

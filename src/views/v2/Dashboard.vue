@@ -228,7 +228,6 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   fetchDashboard, listRecurring, won, wonShort, wonEokMan, ymNow,
-  fetchLivingBudgetStatus,
   RECURRING_KINDS, OWNERS,
 } from '../../lib/api_v2.js'
 import Donut from './components/Donut.vue'
@@ -324,14 +323,13 @@ async function load() {
   recurring.value = []
   living.value = null
   try {
-    const [summary, recs, livingStatus] = await Promise.all([
+    const [summary, recs] = await Promise.all([
       fetchDashboard(ym.value),
       listRecurring({ ym: ym.value, activeOnly: true }),
-      fetchLivingBudgetStatus(ym.value),
     ])
     d.value = summary
     recurring.value = recs
-    living.value = livingStatus
+    living.value = summary.living   // fetchDashboard 가 이미 계산해 둠 (중복 호출 제거)
   } catch (e) {
     error.value = e.message || String(e)
   } finally {

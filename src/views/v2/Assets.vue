@@ -82,7 +82,7 @@
                 </div>
               </div>
               <div class="ac-name">{{ a.name }}</div>
-              <div class="ac-balance" :class="a.is_liability ? 'text-danger' : ''">{{ won(a.balance) }}</div>
+              <div class="ac-balance" :class="a.is_liability ? 'text-danger' : ''">{{ won(displayBalance(a)) }}</div>
               <div v-if="a.memo" class="ac-memo text-muted small">{{ a.memo }}</div>
             </div>
           </div>
@@ -234,10 +234,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  listAccounts, createAccount, updateAccount, deleteAccount, updateBalance,
+  createAccount, updateAccount, deleteAccount, updateBalance,
   setDefaultPaymentAccount, clearDefaultPaymentAccount,
   listSnapshotsRange,
   listTransactions,
+  fetchDashboard,
   won, ymNow,
   ACCOUNT_TYPES, OWNERS,
 } from '../../lib/api_v2.js'
@@ -258,11 +259,23 @@ const snapshots = ref([])
 const loading = ref(true)
 const saving = ref(false)
 
+// 실시간 계산 override 값 (fetchDashboard 결과와 동일 소스 → 대시보드와 순자산 일치)
+const surplus = ref(0)              // 가용 잉여 → "총수입" 계좌 표시값
+const livingRemaining = ref(0)      // 거래 페이지 잔여 → "생활비" 봉투 표시값
+const mainAccountId = ref(null)     // 총수입 계좌 id (fetchDashboard 가 판별)
+
+// 계좌 카드에 실제로 보여줄 값 (특정 계좌는 계산값으로 override)
+function displayBalance(a) {
+  if (a.tx_default) return livingRemaining.value
+  if (a.id === mainAccountId.value) return surplus.value
+  return Number(a.balance)
+}
+
 const filterOwner = ref('all')
 
 // 합계
-const assetTotal = computed(() => accounts.value.filter(a => !a.is_liability).reduce((s, a) => s + Number(a.balance), 0))
-const liabTotal  = computed(() => accounts.value.filter(a =>  a.is_liability).reduce((s, a) => s + Number(a.balance), 0))
+const assetTotal = computed(() => accounts.value.filter(a => !a.is_liability).reduce((s, a) => s + displayBalance(a), 0))
+const liabTotal  = computed(() => accounts.value.filter(a =>  a.is_liability).reduce((s, a) => s + displayBalance(a), 0))
 const net = computed(() => assetTotal.value - liabTotal.value)
 
 const countByOwner = computed(() => {
@@ -288,7 +301,7 @@ const displayGroups = computed(() => {
   return ordered
 })
 
-const sumOf = (list) => list.reduce((s, a) => s + (a.is_liability ? -1 : 1) * Number(a.balance), 0)
+const sumOf = (list) => list.reduce((s, a) => s + (a.is_liability ? -1 : 1) * displayBalance(a), 0)
 
 // 차트: 최근 6개월, 소유자별 자산 합계
 const chartMonths = computed(() => {
@@ -464,8 +477,13 @@ async function doDelete() {
 async function reload() {
   loading.value = true
   try {
-    const accs = await listAccounts()
-    accounts.value = accs
+    const ym = ymNow()
+    // fetchDashboard 가 accounts + surplus + living(잔여) + mainAccountId 를 한 번에 반환 → 중복 호출 제거
+    const dash = await fetchDashboard(ym)
+    accounts.value = dash.accounts
+    surplus.value = dash.recurring.surplus
+    livingRemaining.value = Number(dash.living?.remaining || 0)
+    mainAccountId.value = dash.mainAccountId
     if (chartMonths.value.length) {
       snapshots.value = await listSnapshotsRange(chartMonths.value[0], chartMonths.value[chartMonths.value.length - 1])
     }

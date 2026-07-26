@@ -468,10 +468,11 @@ export async function fetchLivingBudgetStatus(ym = ymNow(), opts = {}) {
 // ===== 대시보드 요약 =====
 // 한 달 기준 수입/지출/저축/보험/상환 합계 + 자산총합/부채/소유자별 자산
 export async function fetchDashboard(ym = ymNow()) {
-  const [accs, recs, allTxs] = await Promise.all([
+  const [accs, recs, allTxs, living] = await Promise.all([
     listAccounts(),
     listRecurring({ ym, activeOnly: true }),
     listTransactions({ ym, includeRecurring: true }),
+    fetchLivingBudgetStatus(ym),
   ])
 
   const sumKind = (k) => recs.filter(r => r.kind === k).reduce((s, r) => s + Number(r.amount), 0)
@@ -527,14 +528,24 @@ export async function fetchDashboard(ym = ymNow()) {
     .filter(b => b.expense > 0 || b.income > 0)
     .sort((a, b) => b.expense - a.expense || b.income - a.income)
 
+  // 계좌 표시 잔액 override:
+  //  - 봉투(tx_default) 계좌 → 생활비 봉투 잔여(이월+입금−사용)
+  //  - 총수입(mainAccountId) 계좌 → 가용 잉여
+  // DB 의 balance 컬럼은 건드리지 않고 요약 표시/합계에만 적용한다.
+  const displayBal = (a) => {
+    if (a.tx_default) return Number(living?.remaining || 0)
+    if (a.id === mainAccountId) return recurring.surplus
+    return Number(a.balance)
+  }
+
   const assets = accs.filter(a => !a.is_liability)
   const liabilities = accs.filter(a => a.is_liability)
-  const assetTotal = assets.reduce((s, a) => s + Number(a.balance), 0)
-  const liabilityTotal = liabilities.reduce((s, a) => s + Number(a.balance), 0)
+  const assetTotal = assets.reduce((s, a) => s + displayBal(a), 0)
+  const liabilityTotal = liabilities.reduce((s, a) => s + displayBal(a), 0)
 
   const byOwner = {}
   for (const o of OWNERS) byOwner[o] = 0
-  for (const a of assets) byOwner[a.owner] = (byOwner[a.owner] || 0) + Number(a.balance)
+  for (const a of assets) byOwner[a.owner] = (byOwner[a.owner] || 0) + displayBal(a)
 
   return {
     ym,
@@ -542,6 +553,8 @@ export async function fetchDashboard(ym = ymNow()) {
     tx: { income: txIncome, expense: txExpense },
     accounts: accs,
     accountUsage,
+    living,
+    mainAccountId,
     assetTotal,
     liabilityTotal,
     netWorth: assetTotal - liabilityTotal,
